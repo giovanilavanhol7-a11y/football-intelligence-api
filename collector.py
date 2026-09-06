@@ -17,9 +17,7 @@ def download_json(url):
 
 
 def get_competitions():
-    return download_json(
-        f"{BASE_URL}/competitions.json"
-    )
+    return download_json(f"{BASE_URL}/competitions.json")
 
 
 def get_matches(competition_id, season_id):
@@ -78,10 +76,7 @@ def analyze_events(events):
             .get("name", "")
         )
 
-        # -------------------------------------------------
         # FINALIZAÇÕES
-        # -------------------------------------------------
-
         if event_type == "Shot":
 
             teams[team]["shots"] += 1
@@ -116,17 +111,11 @@ def analyze_events(events):
             if shot_type == "Corner":
                 teams[team]["corners"] += 1
 
-        # -------------------------------------------------
-        # GOL CONTRA A FAVOR
-        # -------------------------------------------------
-
+        # GOL CONTRA
         elif event_type == "Own Goal For":
             teams[team]["goals"] += 1
 
-        # -------------------------------------------------
         # ESCANTEIOS
-        # -------------------------------------------------
-
         elif event_type == "Pass":
 
             pass_data = event.get("pass", {})
@@ -139,10 +128,7 @@ def analyze_events(events):
             if pass_type == "Corner":
                 teams[team]["corners"] += 1
 
-        # -------------------------------------------------
         # FALTAS
-        # -------------------------------------------------
-
         elif event_type == "Foul Committed":
 
             foul = event.get(
@@ -182,10 +168,7 @@ def analyze_events(events):
             ]:
                 teams[team]["red_cards"] += 1
 
-        # -------------------------------------------------
-        # BAD BEHAVIOUR / CARTÕES
-        # -------------------------------------------------
-
+        # BAD BEHAVIOUR
         elif event_type == "Bad Behaviour":
 
             behaviour = event.get(
@@ -213,12 +196,7 @@ def analyze_events(events):
     result = {}
 
     for team, stats in teams.items():
-
-        stats["xg"] = round(
-            stats["xg"],
-            2
-        )
-
+        stats["xg"] = round(stats["xg"], 2)
         result[team] = stats
 
     return result
@@ -281,64 +259,46 @@ def average(values):
 
 
 # =========================================================
-# FREQUÊNCIAS
+# LINHAS
 # =========================================================
 
 FREQUENCY_LINES = {
 
     "goals": [
-        0.5,
-        1.5,
-        2.5
+        0.5, 1.5, 2.5
     ],
 
     "shots": [
-        7.5,
-        8.5,
-        9.5,
-        10.5,
-        11.5,
-        12.5
+        7.5, 8.5, 9.5,
+        10.5, 11.5, 12.5
     ],
 
     "shots_on_target": [
-        1.5,
-        2.5,
-        3.5,
-        4.5,
-        5.5,
-        6.5
+        1.5, 2.5, 3.5,
+        4.5, 5.5, 6.5
     ],
 
     "corners": [
-        2.5,
-        3.5,
-        4.5,
-        5.5,
-        6.5,
-        7.5,
-        8.5,
-        9.5
+        2.5, 3.5, 4.5,
+        5.5, 6.5, 7.5,
+        8.5, 9.5
     ],
 
     "fouls_committed": [
-        7.5,
-        8.5,
-        9.5,
-        10.5,
-        11.5,
-        12.5
+        7.5, 8.5, 9.5,
+        10.5, 11.5, 12.5
     ],
 
     "yellow_cards": [
-        0.5,
-        1.5,
-        2.5,
-        3.5,
-        4.5
+        0.5, 1.5, 2.5,
+        3.5, 4.5
     ]
 }
 
+
+# =========================================================
+# FREQUÊNCIAS
+# =========================================================
 
 def calculate_frequency(values, line):
 
@@ -367,7 +327,7 @@ def calculate_frequency(values, line):
         "hits": hits,
         "sample": total,
         "rate": round(
-            (hits / total) * 100,
+            hits / total * 100,
             1
         )
     }
@@ -384,27 +344,19 @@ def build_frequencies(stat_values):
             []
         )
 
-        stat_result = {}
+        result[stat] = {}
 
         for line in lines:
 
-            label = f"over_{line}"
-
-            stat_result[label] = (
-                calculate_frequency(
-                    values,
-                    line
-                )
+            result[stat][
+                f"over_{line}"
+            ] = calculate_frequency(
+                values,
+                line
             )
-
-        result[stat] = stat_result
 
     return result
 
-
-# =========================================================
-# FREQUÊNCIAS TOTAIS DA PARTIDA
-# =========================================================
 
 def build_match_total_frequencies(games):
 
@@ -422,32 +374,17 @@ def build_match_total_frequencies(games):
             {}
         )
 
-        for stat in [
-            "goals",
-            "shots",
-            "shots_on_target",
-            "corners",
-            "fouls_committed",
-            "yellow_cards"
-        ]:
+        for stat in FREQUENCY_LINES.keys():
 
-            produced_value = produced.get(stat)
-            conceded_value = conceded.get(stat)
+            a = produced.get(stat)
+            b = conceded.get(stat)
 
             if (
-                isinstance(
-                    produced_value,
-                    (int, float)
-                )
-                and isinstance(
-                    conceded_value,
-                    (int, float)
-                )
+                isinstance(a, (int, float))
+                and isinstance(b, (int, float))
             ):
-
                 total_values[stat].append(
-                    produced_value
-                    + conceded_value
+                    a + b
                 )
 
     return build_frequencies(
@@ -456,7 +393,7 @@ def build_match_total_frequencies(games):
 
 
 # =========================================================
-# HISTÓRICO
+# HISTÓRICO DO TIME
 # =========================================================
 
 def analyze_team_history(
@@ -473,10 +410,6 @@ def analyze_team_history(
     )
 
     team_matches = []
-
-    # -----------------------------------------------------
-    # SELECIONA OS JOGOS
-    # -----------------------------------------------------
 
     for match in matches:
 
@@ -513,43 +446,29 @@ def analyze_team_history(
         )
 
         try:
-
-            date_value = (
-                datetime.strptime(
-                    date_text,
-                    "%Y-%m-%d"
-                )
+            date_value = datetime.strptime(
+                date_text,
+                "%Y-%m-%d"
             )
-
         except Exception:
             continue
 
         team_matches.append({
-            "date_value":
-                date_value,
-
-            "match":
-                match
+            "date_value": date_value,
+            "match": match
         })
 
     team_matches.sort(
-        key=lambda item:
-            item["date_value"],
+        key=lambda item: item["date_value"],
         reverse=True
     )
 
-    selected = team_matches[
-        :limit
-    ]
+    selected = team_matches[:limit]
 
     games = []
 
     produced = defaultdict(list)
     conceded = defaultdict(list)
-
-    # -----------------------------------------------------
-    # JOGO A JOGO
-    # -----------------------------------------------------
 
     for item in selected:
 
@@ -569,13 +488,9 @@ def analyze_team_history(
             "away"
         )
 
-        events = get_events(
-            match_id
-        )
+        events = get_events(match_id)
 
-        stats = analyze_events(
-            events
-        )
+        stats = analyze_events(events)
 
         team_stats = stats.get(
             team_name
@@ -601,105 +516,262 @@ def analyze_team_history(
         )
 
         game = {
-            "match_id":
-                match_id,
-
-            "date":
-                match.get(
-                    "match_date"
-                ),
-
-            "home":
-                home,
-
-            "away":
-                away,
-
-            "venue":
-                location,
-
-            "opponent":
-                opponent_name,
-
-            "produced":
-                dict(team_stats),
-
-            "conceded":
-                dict(opponent_stats)
+            "match_id": match_id,
+            "date": match.get("match_date"),
+            "home": home,
+            "away": away,
+            "venue": location,
+            "opponent": opponent_name,
+            "produced": dict(team_stats),
+            "conceded": dict(opponent_stats)
         }
 
-        games.append(
-            game
-        )
+        games.append(game)
 
-        for stat, value in (
-            team_stats.items()
-        ):
+        for stat, value in team_stats.items():
 
             if isinstance(
                 value,
                 (int, float)
             ):
-                produced[
-                    stat
-                ].append(value)
+                produced[stat].append(
+                    value
+                )
 
-        for stat, value in (
-            opponent_stats.items()
-        ):
+        for stat, value in opponent_stats.items():
 
             if isinstance(
                 value,
                 (int, float)
             ):
-                conceded[
-                    stat
-                ].append(value)
+                conceded[stat].append(
+                    value
+                )
 
-    # -----------------------------------------------------
-    # MÉDIAS
-    # -----------------------------------------------------
+    produced_averages = {
+        stat: average(values)
+        for stat, values
+        in produced.items()
+    }
 
-    produced_averages = {}
+    conceded_averages = {
+        stat: average(values)
+        for stat, values
+        in conceded.items()
+    }
 
-    conceded_averages = {}
+    return {
+        "team": team_name,
+        "competition_id": competition_id,
+        "season_id": season_id,
+        "requested_matches": limit,
+        "matches_analyzed": len(games),
+        "venue": venue,
 
-    for stat, values in (
-        produced.items()
-    ):
+        "games": games,
 
-        produced_averages[
-            stat
-        ] = average(values)
+        "averages": {
+            "produced": produced_averages,
+            "conceded": conceded_averages
+        },
 
-    for stat, values in (
-        conceded.items()
-    ):
+        "frequencies": {
+            "produced":
+                build_frequencies(
+                    produced
+                ),
 
-        conceded_averages[
-            stat
-        ] = average(values)
+            "conceded":
+                build_frequencies(
+                    conceded
+                ),
 
-    # -----------------------------------------------------
-    # FREQUÊNCIAS REAIS
-    # -----------------------------------------------------
+            "match_total":
+                build_match_total_frequencies(
+                    games
+                )
+        },
 
-    produced_frequencies = (
-        build_frequencies(
-            produced
+        "integrity": {
+            "match_by_match": True,
+            "missing_values_invented": False,
+            "frequencies_from_averages": False,
+            "frequency_denominator":
+                "actual_valid_games"
+        }
+    }
+
+
+# =========================================================
+# PRODUZIDO × CEDIDO
+# =========================================================
+
+def cross_stat(
+    produced_average,
+    opponent_conceded_average
+):
+
+    if (
+        not isinstance(
+            produced_average,
+            (int, float)
         )
+        or not isinstance(
+            opponent_conceded_average,
+            (int, float)
+        )
+    ):
+        return None
+
+    return round(
+        (
+            produced_average
+            + opponent_conceded_average
+        ) / 2,
+        2
     )
 
-    conceded_frequencies = (
-        build_frequencies(
-            conceded
-        )
+
+def build_cross(
+    team_history,
+    opponent_history
+):
+
+    result = {}
+
+    team_produced = (
+        team_history
+        .get("averages", {})
+        .get("produced", {})
     )
 
-    match_total_frequencies = (
-        build_match_total_frequencies(
-            games
+    opponent_conceded = (
+        opponent_history
+        .get("averages", {})
+        .get("conceded", {})
+    )
+
+    for stat in [
+        "goals",
+        "xg",
+        "shots",
+        "shots_on_target",
+        "corners",
+        "fouls_committed",
+        "yellow_cards"
+    ]:
+
+        produced_value = (
+            team_produced.get(stat)
         )
+
+        conceded_value = (
+            opponent_conceded.get(stat)
+        )
+
+        result[stat] = {
+            "team_produced_average":
+                produced_value,
+
+            "opponent_conceded_average":
+                conceded_value,
+
+            "cross_average":
+                cross_stat(
+                    produced_value,
+                    conceded_value
+                )
+        }
+
+    return result
+
+
+# =========================================================
+# ANÁLISE PRÉ-JOGO CASA × FORA
+# =========================================================
+
+def analyze_prematch(
+    competition_id,
+    season_id,
+    home_team,
+    away_team,
+    limit=5
+):
+
+    # -----------------------------------------------------
+    # MANDANTE — ÚLTIMOS GERAIS
+    # -----------------------------------------------------
+
+    home_general = analyze_team_history(
+        competition_id,
+        season_id,
+        home_team,
+        limit=limit,
+        venue="all"
+    )
+
+    # -----------------------------------------------------
+    # VISITANTE — ÚLTIMOS GERAIS
+    # -----------------------------------------------------
+
+    away_general = analyze_team_history(
+        competition_id,
+        season_id,
+        away_team,
+        limit=limit,
+        venue="all"
+    )
+
+    # -----------------------------------------------------
+    # MANDANTE — SOMENTE CASA
+    # -----------------------------------------------------
+
+    home_at_home = analyze_team_history(
+        competition_id,
+        season_id,
+        home_team,
+        limit=limit,
+        venue="home"
+    )
+
+    # -----------------------------------------------------
+    # VISITANTE — SOMENTE FORA
+    # -----------------------------------------------------
+
+    away_at_away = analyze_team_history(
+        competition_id,
+        season_id,
+        away_team,
+        limit=limit,
+        venue="away"
+    )
+
+    # -----------------------------------------------------
+    # CRUZAMENTO GERAL
+    # -----------------------------------------------------
+
+    home_cross_general = build_cross(
+        home_general,
+        away_general
+    )
+
+    away_cross_general = build_cross(
+        away_general,
+        home_general
+    )
+
+    # -----------------------------------------------------
+    # CRUZAMENTO CASA × FORA
+    # -----------------------------------------------------
+
+    home_cross_venue = build_cross(
+        home_at_home,
+        away_at_away
+    )
+
+    away_cross_venue = build_cross(
+        away_at_away,
+        home_at_home
     )
 
     # -----------------------------------------------------
@@ -707,8 +779,11 @@ def analyze_team_history(
     # -----------------------------------------------------
 
     return {
-        "team":
-            team_name,
+
+        "match": {
+            "home": home_team,
+            "away": away_team
+        },
 
         "competition_id":
             competition_id,
@@ -716,36 +791,42 @@ def analyze_team_history(
         "season_id":
             season_id,
 
-        "requested_matches":
+        "sample":
             limit,
 
-        "matches_analyzed":
-            len(games),
+        "home": {
+            "general":
+                home_general,
 
-        "venue":
-            venue,
-
-        "games":
-            games,
-
-        "averages": {
-            "produced":
-                produced_averages,
-
-            "conceded":
-                conceded_averages
+            "home_only":
+                home_at_home
         },
 
-        "frequencies": {
+        "away": {
+            "general":
+                away_general,
 
-            "produced":
-                produced_frequencies,
+            "away_only":
+                away_at_away
+        },
 
-            "conceded":
-                conceded_frequencies,
+        "produced_x_conceded": {
 
-            "match_total":
-                match_total_frequencies
+            "general": {
+                "home":
+                    home_cross_general,
+
+                "away":
+                    away_cross_general
+            },
+
+            "home_away": {
+                "home":
+                    home_cross_venue,
+
+                "away":
+                    away_cross_venue
+            }
         },
 
         "integrity": {
@@ -758,7 +839,10 @@ def analyze_team_history(
             "frequencies_from_averages":
                 False,
 
-            "frequency_denominator":
-                "actual_valid_games"
+            "cross_average_is_projection":
+                True,
+
+            "cross_average_is_hit_rate":
+                False
         }
     }
