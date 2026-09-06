@@ -1,5 +1,6 @@
 import requests
 from collections import defaultdict
+from datetime import datetime
 
 BASE_URL = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
 TIMEOUT = 20
@@ -38,7 +39,7 @@ def get_events(match_id):
 
 
 # =========================================================
-# ESTATÍSTICAS
+# ESTRUTURA DAS ESTATÍSTICAS
 # =========================================================
 
 def empty_team_stats():
@@ -55,7 +56,7 @@ def empty_team_stats():
 
 
 # =========================================================
-# ANALISADOR
+# ANALISADOR DE EVENTOS
 # =========================================================
 
 def analyze_events(events):
@@ -74,7 +75,6 @@ def analyze_events(events):
         if not team:
             continue
 
-        # Garante a criação do time
         _ = teams[team]
 
         event_type = (
@@ -102,17 +102,14 @@ def analyze_events(events):
                 .get("name")
             )
 
-            # xG
             xg = shot.get("statsbomb_xg")
 
             if isinstance(xg, (int, float)):
                 teams[team]["xg"] += xg
 
-            # Gol
             if outcome == "Goal":
                 teams[team]["goals"] += 1
 
-            # Chute no gol
             if outcome in [
                 "Goal",
                 "Saved",
@@ -120,7 +117,6 @@ def analyze_events(events):
             ]:
                 teams[team]["shots_on_target"] += 1
 
-            # Corner executado como finalização
             if shot_type == "Corner":
                 teams[team]["corners"] += 1
 
@@ -129,11 +125,10 @@ def analyze_events(events):
         # =================================================
 
         elif event_type == "Own Goal For":
-
             teams[team]["goals"] += 1
 
         # =================================================
-        # ESCANTEIO EXECUTADO COMO PASSE
+        # ESCANTEIOS
         # =================================================
 
         elif event_type == "Pass":
@@ -159,28 +154,21 @@ def analyze_events(events):
                 {}
             )
 
-            advantage = foul.get(
-                "advantage"
-            )
+            advantage = foul.get("advantage")
 
             foul_type = (
                 foul.get("type", {})
                 .get("name")
             )
 
-            # StatsBomb:
-            # não contar vantagem nem offside
             valid_foul = (
                 advantage is not True
                 and foul_type != "Offside"
             )
 
             if valid_foul:
-                teams[team][
-                    "fouls_committed"
-                ] += 1
+                teams[team]["fouls_committed"] += 1
 
-            # Cartão associado à falta
             card = (
                 foul.get("card", {})
                 .get("name")
@@ -190,20 +178,16 @@ def analyze_events(events):
                 "Yellow Card",
                 "Second Yellow"
             ]:
-                teams[team][
-                    "yellow_cards"
-                ] += 1
+                teams[team]["yellow_cards"] += 1
 
             if card in [
                 "Red Card",
                 "Second Yellow"
             ]:
-                teams[team][
-                    "red_cards"
-                ] += 1
+                teams[team]["red_cards"] += 1
 
         # =================================================
-        # CARTÕES — BAD BEHAVIOUR
+        # BAD BEHAVIOUR
         # =================================================
 
         elif event_type == "Bad Behaviour":
@@ -222,21 +206,13 @@ def analyze_events(events):
                 "Yellow Card",
                 "Second Yellow"
             ]:
-                teams[team][
-                    "yellow_cards"
-                ] += 1
+                teams[team]["yellow_cards"] += 1
 
             if card in [
                 "Red Card",
                 "Second Yellow"
             ]:
-                teams[team][
-                    "red_cards"
-                ] += 1
-
-    # =====================================================
-    # ARREDONDAMENTO xG
-    # =====================================================
+                teams[team]["red_cards"] += 1
 
     result = {}
 
@@ -253,7 +229,7 @@ def analyze_events(events):
 
 
 # =========================================================
-# PARTIDA
+# ANALISAR UMA PARTIDA
 # =========================================================
 
 def analyze_match(match_id):
@@ -267,4 +243,245 @@ def analyze_match(match_id):
         "source": "StatsBomb Open Data",
         "events_received": len(events),
         "teams": stats
+    }
+
+
+# =========================================================
+# UTILIDADES DO HISTÓRICO
+# =========================================================
+
+def team_name_from_match(match, side):
+
+    if side == "home":
+        return (
+            match.get("home_team", {})
+            .get("home_team_name")
+        )
+
+    return (
+        match.get("away_team", {})
+        .get("away_team_name")
+    )
+
+
+def find_opponent(stats, team_name):
+
+    for name, values in stats.items():
+
+        if name != team_name:
+            return name, values
+
+    return None, None
+
+
+def average(values):
+
+    if not values:
+        return None
+
+    return round(
+        sum(values) / len(values),
+        2
+    )
+
+
+# =========================================================
+# HISTÓRICO DE UM TIME
+# =========================================================
+
+def analyze_team_history(
+    competition_id,
+    season_id,
+    team_name,
+    limit=10,
+    venue="all"
+):
+
+    matches = get_matches(
+        competition_id,
+        season_id
+    )
+
+    team_matches = []
+
+    # =====================================================
+    # LOCALIZA PARTIDAS DO TIME
+    # =====================================================
+
+    for match in matches:
+
+        home = team_name_from_match(
+            match,
+            "home"
+        )
+
+        away = team_name_from_match(
+            match,
+            "away"
+        )
+
+        if team_name not in [home, away]:
+            continue
+
+        if venue == "home" and home != team_name:
+            continue
+
+        if venue == "away" and away != team_name:
+            continue
+
+        date_text = match.get("match_date")
+
+        try:
+            date_value = datetime.strptime(
+                date_text,
+                "%Y-%m-%d"
+            )
+        except Exception:
+            continue
+
+        team_matches.append({
+            "date_value": date_value,
+            "match": match
+        })
+
+    # Mais recentes primeiro
+    team_matches.sort(
+        key=lambda item: item["date_value"],
+        reverse=True
+    )
+
+    selected = team_matches[:limit]
+
+    games = []
+
+    produced = defaultdict(list)
+    conceded = defaultdict(list)
+
+    # =====================================================
+    # ANALISA JOGO POR JOGO
+    # =====================================================
+
+    for item in selected:
+
+        match = item["match"]
+
+        match_id = match.get("match_id")
+
+        home = team_name_from_match(
+            match,
+            "home"
+        )
+
+        away = team_name_from_match(
+            match,
+            "away"
+        )
+
+        events = get_events(match_id)
+
+        stats = analyze_events(events)
+
+        team_stats = stats.get(team_name)
+
+        opponent_name, opponent_stats = (
+            find_opponent(
+                stats,
+                team_name
+            )
+        )
+
+        # Nunca inventamos dado ausente
+        if (
+            team_stats is None
+            or opponent_stats is None
+        ):
+            continue
+
+        location = (
+            "home"
+            if home == team_name
+            else "away"
+        )
+
+        game = {
+            "match_id": match_id,
+            "date": match.get("match_date"),
+            "home": home,
+            "away": away,
+            "venue": location,
+            "opponent": opponent_name,
+
+            "produced": dict(team_stats),
+            "conceded": dict(opponent_stats)
+        }
+
+        games.append(game)
+
+        for stat, value in team_stats.items():
+            produced[stat].append(value)
+
+        for stat, value in opponent_stats.items():
+            conceded[stat].append(value)
+
+    # =====================================================
+    # MÉDIAS REAIS
+    # =====================================================
+
+    produced_averages = {}
+
+    conceded_averages = {}
+
+    for stat, values in produced.items():
+        produced_averages[stat] = average(
+            values
+        )
+
+    for stat, values in conceded.items():
+        conceded_averages[stat] = average(
+            values
+        )
+
+    # =====================================================
+    # RESULTADO
+    # =====================================================
+
+    return {
+        "team": team_name,
+
+        "competition_id":
+            competition_id,
+
+        "season_id":
+            season_id,
+
+        "requested_matches":
+            limit,
+
+        "matches_analyzed":
+            len(games),
+
+        "venue":
+            venue,
+
+        "games":
+            games,
+
+        "averages": {
+            "produced":
+                produced_averages,
+
+            "conceded":
+                conceded_averages
+        },
+
+        "integrity": {
+            "match_by_match":
+                True,
+
+            "missing_values_invented":
+                False,
+
+            "frequencies_from_averages":
+                False
+        }
     }
