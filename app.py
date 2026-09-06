@@ -6,12 +6,15 @@ from collector import (
     analyze_team_history,
     analyze_prematch
 )
+from collector_2627 import (
+    collector_2627_status
+)
 import requests
 
 app = Flask(__name__)
 
 API_NAME = "Football Intelligence API"
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 
 # =========================================================
@@ -25,8 +28,14 @@ def home():
         "version": VERSION,
         "status": "online",
         "mode": "pre-match",
-        "source": "StatsBomb Open Data",
-        "message": "API própria de inteligência e análise de futebol"
+        "seasons": {
+            "historical": "StatsBomb Open Data",
+            "2026_27": "collector_2627"
+        },
+        "message": (
+            "API própria de inteligência "
+            "e análise de futebol"
+        )
     })
 
 
@@ -43,7 +52,7 @@ def health():
 
 
 # =========================================================
-# INFO
+# INFORMAÇÕES DA API
 # =========================================================
 
 @app.route("/api/v1/info")
@@ -70,12 +79,13 @@ def info():
             "casa_fora",
             "frequencias",
             "produzido_x_cedido",
-            "pre_match"
+            "pre_match",
+            "confidence_score",
+            "ranking_oportunidades",
+            "temporada_2026_27"
         ],
 
         "future_modules": [
-            "confidence_score",
-            "ranking_oportunidades",
             "jogadores",
             "arbitro",
             "contexto"
@@ -85,26 +95,48 @@ def info():
             "missing_data": None,
             "invent_missing_values": False,
             "hit_rates_require_match_data": True,
-            "cross_average_is_hit_rate": False
+            "cross_average_is_hit_rate": False,
+            "minimum_valid_games": 4,
+            "minimum_coverage": 0.80
         }
     })
 
 
 # =========================================================
-# COMPETIÇÕES
+# STATUS 2026/27
+# =========================================================
+
+@app.route("/api/v1/2627/status")
+def status_2627():
+    try:
+        result = collector_2627_status()
+
+        return jsonify({
+            "api": API_NAME,
+            "version": VERSION,
+            **result
+        })
+
+    except Exception as error:
+        return jsonify({
+            "status": "error",
+            "season": "2026/27",
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# COMPETIÇÕES HISTÓRICAS
 # =========================================================
 
 @app.route("/api/v1/competitions")
 def competitions():
-
     try:
-
         data = get_competitions()
 
         result = []
 
         for item in data:
-
             result.append({
                 "competition_id":
                     item.get("competition_id"),
@@ -129,14 +161,12 @@ def competitions():
         })
 
     except requests.exceptions.RequestException as error:
-
         return jsonify({
             "status": "source_error",
             "error": str(error)
         }), 502
 
     except Exception as error:
-
         return jsonify({
             "status": "error",
             "error": str(error)
@@ -144,16 +174,16 @@ def competitions():
 
 
 # =========================================================
-# PARTIDAS DA COMPETIÇÃO
+# PARTIDAS HISTÓRICAS
 # =========================================================
 
 @app.route(
-    "/api/v1/competitions/<int:competition_id>/seasons/<int:season_id>/matches"
+    "/api/v1/competitions/"
+    "<int:competition_id>/seasons/"
+    "<int:season_id>/matches"
 )
 def matches(competition_id, season_id):
-
     try:
-
         data = get_matches(
             competition_id,
             season_id
@@ -162,25 +192,20 @@ def matches(competition_id, season_id):
         result = []
 
         for match in data:
-
             home = match.get(
-                "home_team",
-                {}
+                "home_team", {}
             )
 
             away = match.get(
-                "away_team",
-                {}
+                "away_team", {}
             )
 
             competition = match.get(
-                "competition",
-                {}
+                "competition", {}
             )
 
             season = match.get(
-                "season",
-                {}
+                "season", {}
             )
 
             result.append({
@@ -214,40 +239,31 @@ def matches(competition_id, season_id):
                     ),
 
                 "home_score":
-                    match.get(
-                        "home_score"
-                    ),
+                    match.get("home_score"),
 
                 "away_score":
-                    match.get(
-                        "away_score"
-                    )
+                    match.get("away_score")
             })
 
         return jsonify({
             "status": "ok",
             "competition_id":
                 competition_id,
-
             "season_id":
                 season_id,
-
             "total":
                 len(result),
-
             "matches":
                 result
         })
 
     except requests.exceptions.RequestException as error:
-
         return jsonify({
             "status": "source_error",
             "error": str(error)
         }), 502
 
     except Exception as error:
-
         return jsonify({
             "status": "error",
             "error": str(error)
@@ -260,9 +276,7 @@ def matches(competition_id, season_id):
 
 @app.route("/api/v1/match/<int:match_id>/stats")
 def match_stats(match_id):
-
     try:
-
         result = analyze_match(
             match_id
         )
@@ -273,7 +287,6 @@ def match_stats(match_id):
         })
 
     except requests.exceptions.HTTPError as error:
-
         status_code = (
             error.response.status_code
             if error.response is not None
@@ -281,7 +294,6 @@ def match_stats(match_id):
         )
 
         if status_code == 404:
-
             return jsonify({
                 "status": "not_found",
                 "match_id": match_id,
@@ -296,7 +308,6 @@ def match_stats(match_id):
         }), 502
 
     except requests.exceptions.RequestException as error:
-
         return jsonify({
             "status": "source_error",
             "match_id": match_id,
@@ -304,7 +315,6 @@ def match_stats(match_id):
         }), 502
 
     except Exception as error:
-
         return jsonify({
             "status": "error",
             "match_id": match_id,
@@ -318,9 +328,7 @@ def match_stats(match_id):
 
 @app.route("/api/v1/team/history")
 def team_history():
-
     try:
-
         competition_id = request.args.get(
             "competition_id",
             type=int
@@ -410,14 +418,12 @@ def team_history():
         })
 
     except requests.exceptions.RequestException as error:
-
         return jsonify({
             "status": "source_error",
             "error": str(error)
         }), 502
 
     except Exception as error:
-
         return jsonify({
             "status": "error",
             "error": str(error)
@@ -430,9 +436,7 @@ def team_history():
 
 @app.route("/api/v1/prematch")
 def prematch():
-
     try:
-
         competition_id = request.args.get(
             "competition_id",
             type=int
@@ -517,14 +521,12 @@ def prematch():
         })
 
     except requests.exceptions.RequestException as error:
-
         return jsonify({
             "status": "source_error",
             "error": str(error)
         }), 502
 
     except Exception as error:
-
         return jsonify({
             "status": "error",
             "error": str(error)
@@ -532,11 +534,10 @@ def prematch():
 
 
 # =========================================================
-# START
+# EXECUÇÃO LOCAL
 # =========================================================
 
 if __name__ == "__main__":
-
     app.run(
         host="0.0.0.0",
         port=10000
