@@ -2,7 +2,6 @@ import requests
 from collections import defaultdict
 
 BASE_URL = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
-
 TIMEOUT = 20
 
 
@@ -11,18 +10,13 @@ TIMEOUT = 20
 # =========================================================
 
 def download_json(url):
-    response = requests.get(
-        url,
-        timeout=TIMEOUT
-    )
-
+    response = requests.get(url, timeout=TIMEOUT)
     response.raise_for_status()
-
     return response.json()
 
 
 # =========================================================
-# COMPETIÇÕES
+# FONTE
 # =========================================================
 
 def get_competitions():
@@ -31,40 +25,26 @@ def get_competitions():
     )
 
 
-# =========================================================
-# PARTIDAS
-# =========================================================
-
-def get_matches(
-    competition_id,
-    season_id
-):
+def get_matches(competition_id, season_id):
     return download_json(
-        f"{BASE_URL}/matches/"
-        f"{competition_id}/"
-        f"{season_id}.json"
+        f"{BASE_URL}/matches/{competition_id}/{season_id}.json"
     )
 
-
-# =========================================================
-# EVENTOS
-# =========================================================
 
 def get_events(match_id):
     return download_json(
-        f"{BASE_URL}/events/"
-        f"{match_id}.json"
+        f"{BASE_URL}/events/{match_id}.json"
     )
 
 
 # =========================================================
-# ESTRUTURA DE ESTATÍSTICAS
+# ESTATÍSTICAS
 # =========================================================
 
 def empty_team_stats():
-
     return {
         "goals": 0,
+        "xg": 0.0,
         "shots": 0,
         "shots_on_target": 0,
         "corners": 0,
@@ -75,182 +55,156 @@ def empty_team_stats():
 
 
 # =========================================================
-# ANALISADOR DE EVENTOS
+# ANALISADOR
 # =========================================================
 
 def analyze_events(events):
 
-    teams = defaultdict(
-        empty_team_stats
-    )
+    teams = defaultdict(empty_team_stats)
 
     for event in events:
 
-        # -----------------------------------------
-        # TIME
-        # -----------------------------------------
-
-        team_data = event.get(
-            "team"
-        )
+        team_data = event.get("team")
 
         if not team_data:
             continue
 
-        team = team_data.get(
-            "name"
-        )
+        team = team_data.get("name")
 
         if not team:
             continue
 
-        # Garante que o time exista
-        # mesmo que o evento atual não gere stat.
+        # Garante a criação do time
         _ = teams[team]
 
-        # -----------------------------------------
-        # TIPO DO EVENTO
-        # -----------------------------------------
-
         event_type = (
-            event
-            .get("type", {})
+            event.get("type", {})
             .get("name", "")
         )
 
-        # =========================================
+        # =================================================
         # FINALIZAÇÕES
-        # =========================================
+        # =================================================
 
         if event_type == "Shot":
 
-            teams[team][
-                "shots"
-            ] += 1
+            teams[team]["shots"] += 1
 
-            shot = event.get(
-                "shot",
-                {}
-            )
+            shot = event.get("shot", {})
 
             outcome = (
-                shot
-                .get("outcome", {})
+                shot.get("outcome", {})
                 .get("name")
             )
 
-            # -------------------------------------
-            # GOLS
-            # -------------------------------------
+            shot_type = (
+                shot.get("type", {})
+                .get("name")
+            )
 
+            # xG
+            xg = shot.get("statsbomb_xg")
+
+            if isinstance(xg, (int, float)):
+                teams[team]["xg"] += xg
+
+            # Gol
             if outcome == "Goal":
+                teams[team]["goals"] += 1
 
-                teams[team][
-                    "goals"
-                ] += 1
-
-            # -------------------------------------
-            # CHUTES NO GOL
-            # -------------------------------------
-
+            # Chute no gol
             if outcome in [
                 "Goal",
                 "Saved",
                 "Saved to Post"
             ]:
+                teams[team]["shots_on_target"] += 1
 
-                teams[team][
-                    "shots_on_target"
-                ] += 1
+            # Corner executado como finalização
+            if shot_type == "Corner":
+                teams[team]["corners"] += 1
 
-        # =========================================
-        # ESCANTEIOS
-        # =========================================
-        #
-        # IMPORTANTE:
-        #
-        # NÃO usamos:
-        #
-        # play_pattern == "From Corner"
-        #
-        # porque vários eventos posteriores
-        # podem continuar pertencendo à jogada
-        # iniciada no escanteio.
-        #
-        # Contamos somente a cobrança:
-        #
-        # pass.type.name == "Corner"
-        # =========================================
+        # =================================================
+        # GOL CONTRA A FAVOR
+        # =================================================
+
+        elif event_type == "Own Goal For":
+
+            teams[team]["goals"] += 1
+
+        # =================================================
+        # ESCANTEIO EXECUTADO COMO PASSE
+        # =================================================
 
         elif event_type == "Pass":
 
-            pass_data = event.get(
-                "pass",
-                {}
-            )
+            pass_data = event.get("pass", {})
 
             pass_type = (
-                pass_data
-                .get("type", {})
+                pass_data.get("type", {})
                 .get("name")
             )
 
             if pass_type == "Corner":
+                teams[team]["corners"] += 1
 
-                teams[team][
-                    "corners"
-                ] += 1
-
-        # =========================================
-        # FALTAS COMETIDAS
-        # =========================================
+        # =================================================
+        # FALTAS
+        # =================================================
 
         elif event_type == "Foul Committed":
-
-            teams[team][
-                "fouls_committed"
-            ] += 1
 
             foul = event.get(
                 "foul_committed",
                 {}
             )
 
-            card = (
-                foul
-                .get("card", {})
+            advantage = foul.get(
+                "advantage"
+            )
+
+            foul_type = (
+                foul.get("type", {})
                 .get("name")
             )
 
-            # -------------------------------------
-            # AMARELO
-            # -------------------------------------
+            # StatsBomb:
+            # não contar vantagem nem offside
+            valid_foul = (
+                advantage is not True
+                and foul_type != "Offside"
+            )
+
+            if valid_foul:
+                teams[team][
+                    "fouls_committed"
+                ] += 1
+
+            # Cartão associado à falta
+            card = (
+                foul.get("card", {})
+                .get("name")
+            )
 
             if card in [
                 "Yellow Card",
                 "Second Yellow"
             ]:
-
                 teams[team][
                     "yellow_cards"
                 ] += 1
-
-            # -------------------------------------
-            # VERMELHO
-            # -------------------------------------
 
             if card in [
                 "Red Card",
                 "Second Yellow"
             ]:
-
                 teams[team][
                     "red_cards"
                 ] += 1
 
-        # =========================================
-        # BAD BEHAVIOUR / CARTÕES
-        # =========================================
+        # =================================================
+        # CARTÕES — BAD BEHAVIOUR
+        # =================================================
 
         elif event_type == "Bad Behaviour":
 
@@ -260,8 +214,7 @@ def analyze_events(events):
             )
 
             card = (
-                behaviour
-                .get("card", {})
+                behaviour.get("card", {})
                 .get("name")
             )
 
@@ -269,7 +222,6 @@ def analyze_events(events):
                 "Yellow Card",
                 "Second Yellow"
             ]:
-
                 teams[team][
                     "yellow_cards"
                 ] += 1
@@ -278,38 +230,41 @@ def analyze_events(events):
                 "Red Card",
                 "Second Yellow"
             ]:
-
                 teams[team][
                     "red_cards"
                 ] += 1
 
-    return dict(teams)
+    # =====================================================
+    # ARREDONDAMENTO xG
+    # =====================================================
+
+    result = {}
+
+    for team, stats in teams.items():
+
+        stats["xg"] = round(
+            stats["xg"],
+            2
+        )
+
+        result[team] = stats
+
+    return result
 
 
 # =========================================================
-# ANALISAR PARTIDA
+# PARTIDA
 # =========================================================
 
 def analyze_match(match_id):
 
-    events = get_events(
-        match_id
-    )
+    events = get_events(match_id)
 
-    stats = analyze_events(
-        events
-    )
+    stats = analyze_events(events)
 
     return {
-        "match_id":
-            match_id,
-
-        "source":
-            "StatsBomb Open Data",
-
-        "events_received":
-            len(events),
-
-        "teams":
-            stats
+        "match_id": match_id,
+        "source": "StatsBomb Open Data",
+        "events_received": len(events),
+        "teams": stats
     }
