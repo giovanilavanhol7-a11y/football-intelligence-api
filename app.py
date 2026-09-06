@@ -1,10 +1,20 @@
 from flask import Flask, jsonify
+from collector import (
+    get_competitions,
+    get_matches,
+    analyze_match
+)
+import requests
 
 app = Flask(__name__)
 
 API_NAME = "Football Intelligence API"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
+
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/")
 def home():
@@ -13,9 +23,14 @@ def home():
         "version": VERSION,
         "status": "online",
         "mode": "pre-match",
+        "source": "StatsBomb Open Data",
         "message": "API própria de inteligência e análise de futebol"
     })
 
+
+# =========================================================
+# HEALTH
+# =========================================================
 
 @app.route("/health")
 def health():
@@ -25,12 +40,16 @@ def health():
     })
 
 
+# =========================================================
+# INFORMAÇÕES
+# =========================================================
+
 @app.route("/api/v1/info")
 def info():
     return jsonify({
         "api": API_NAME,
         "version": VERSION,
-        "project": "Analisador pré-jogo de futebol",
+
         "markets": [
             "gols",
             "escanteios",
@@ -39,28 +58,253 @@ def info():
             "cartoes",
             "faltas"
         ],
-        "samples": [
+
+        "future_modules": [
             "ultimos_5",
             "ultimos_10",
-            "casa_fora"
-        ],
-        "analysis": [
+            "casa_fora",
             "produzido_x_cedido",
-            "frequencias_reais",
+            "frequencias",
             "confidence_score",
             "jogadores",
             "arbitro",
             "contexto"
         ],
+
         "integrity": {
-            "missing_data": "null",
+            "missing_data": None,
             "invent_missing_values": False,
-            "calculate_hit_rates_from_match_data": True
+            "hit_rates_require_match_data": True
         }
     })
 
 
+# =========================================================
+# COMPETIÇÕES DISPONÍVEIS
+# =========================================================
+
+@app.route("/api/v1/competitions")
+def competitions():
+
+    try:
+        data = get_competitions()
+
+        result = []
+
+        for item in data:
+
+            result.append({
+                "competition_id":
+                    item.get("competition_id"),
+
+                "competition":
+                    item.get("competition_name"),
+
+                "country":
+                    item.get("country_name"),
+
+                "season_id":
+                    item.get("season_id"),
+
+                "season":
+                    item.get("season_name")
+            })
+
+        return jsonify({
+            "status": "ok",
+            "total": len(result),
+            "competitions": result
+        })
+
+    except requests.exceptions.RequestException as error:
+
+        return jsonify({
+            "status": "source_error",
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+
+        return jsonify({
+            "status": "error",
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# PARTIDAS DE UMA COMPETIÇÃO/TEMPORADA
+# =========================================================
+
+@app.route(
+    "/api/v1/competitions/<int:competition_id>/seasons/<int:season_id>/matches"
+)
+def matches(competition_id, season_id):
+
+    try:
+
+        data = get_matches(
+            competition_id,
+            season_id
+        )
+
+        result = []
+
+        for match in data:
+
+            home = match.get(
+                "home_team",
+                {}
+            )
+
+            away = match.get(
+                "away_team",
+                {}
+            )
+
+            competition = match.get(
+                "competition",
+                {}
+            )
+
+            season = match.get(
+                "season",
+                {}
+            )
+
+            result.append({
+                "match_id":
+                    match.get("match_id"),
+
+                "date":
+                    match.get("match_date"),
+
+                "kick_off":
+                    match.get("kick_off"),
+
+                "competition":
+                    competition.get(
+                        "competition_name"
+                    ),
+
+                "season":
+                    season.get(
+                        "season_name"
+                    ),
+
+                "home":
+                    home.get(
+                        "home_team_name"
+                    ),
+
+                "away":
+                    away.get(
+                        "away_team_name"
+                    ),
+
+                "home_score":
+                    match.get(
+                        "home_score"
+                    ),
+
+                "away_score":
+                    match.get(
+                        "away_score"
+                    )
+            })
+
+        return jsonify({
+            "status": "ok",
+            "competition_id":
+                competition_id,
+            "season_id":
+                season_id,
+            "total":
+                len(result),
+            "matches":
+                result
+        })
+
+    except requests.exceptions.RequestException as error:
+
+        return jsonify({
+            "status": "source_error",
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+
+        return jsonify({
+            "status": "error",
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# ESTATÍSTICAS CALCULADAS DE UMA PARTIDA
+# =========================================================
+
+@app.route(
+    "/api/v1/match/<int:match_id>/stats"
+)
+def match_stats(match_id):
+
+    try:
+
+        result = analyze_match(
+            match_id
+        )
+
+        return jsonify({
+            "status": "ok",
+            **result
+        })
+
+    except requests.exceptions.HTTPError as error:
+
+        status_code = (
+            error.response.status_code
+            if error.response is not None
+            else None
+        )
+
+        if status_code == 404:
+
+            return jsonify({
+                "status": "not_found",
+                "match_id": match_id,
+                "error":
+                    "Partida não encontrada na fonte."
+            }), 404
+
+        return jsonify({
+            "status": "source_error",
+            "match_id": match_id,
+            "error": str(error)
+        }), 502
+
+    except requests.exceptions.RequestException as error:
+
+        return jsonify({
+            "status": "source_error",
+            "match_id": match_id,
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+
+        return jsonify({
+            "status": "error",
+            "match_id": match_id,
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# START
+# =========================================================
+
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=10000
