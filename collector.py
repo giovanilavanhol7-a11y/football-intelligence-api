@@ -7,7 +7,7 @@ TIMEOUT = 20
 
 
 # =========================================================
-# DOWNLOAD
+# DOWNLOAD / FONTE
 # =========================================================
 
 def download_json(url):
@@ -15,10 +15,6 @@ def download_json(url):
     response.raise_for_status()
     return response.json()
 
-
-# =========================================================
-# FONTE
-# =========================================================
 
 def get_competitions():
     return download_json(
@@ -39,7 +35,7 @@ def get_events(match_id):
 
 
 # =========================================================
-# ESTRUTURA DAS ESTATÍSTICAS
+# ESTRUTURA
 # =========================================================
 
 def empty_team_stats():
@@ -56,7 +52,7 @@ def empty_team_stats():
 
 
 # =========================================================
-# ANALISADOR DE EVENTOS
+# EVENTOS
 # =========================================================
 
 def analyze_events(events):
@@ -82,9 +78,9 @@ def analyze_events(events):
             .get("name", "")
         )
 
-        # =================================================
+        # -------------------------------------------------
         # FINALIZAÇÕES
-        # =================================================
+        # -------------------------------------------------
 
         if event_type == "Shot":
 
@@ -120,16 +116,16 @@ def analyze_events(events):
             if shot_type == "Corner":
                 teams[team]["corners"] += 1
 
-        # =================================================
+        # -------------------------------------------------
         # GOL CONTRA A FAVOR
-        # =================================================
+        # -------------------------------------------------
 
         elif event_type == "Own Goal For":
             teams[team]["goals"] += 1
 
-        # =================================================
+        # -------------------------------------------------
         # ESCANTEIOS
-        # =================================================
+        # -------------------------------------------------
 
         elif event_type == "Pass":
 
@@ -143,9 +139,9 @@ def analyze_events(events):
             if pass_type == "Corner":
                 teams[team]["corners"] += 1
 
-        # =================================================
+        # -------------------------------------------------
         # FALTAS
-        # =================================================
+        # -------------------------------------------------
 
         elif event_type == "Foul Committed":
 
@@ -186,9 +182,9 @@ def analyze_events(events):
             ]:
                 teams[team]["red_cards"] += 1
 
-        # =================================================
-        # BAD BEHAVIOUR
-        # =================================================
+        # -------------------------------------------------
+        # BAD BEHAVIOUR / CARTÕES
+        # -------------------------------------------------
 
         elif event_type == "Bad Behaviour":
 
@@ -229,13 +225,12 @@ def analyze_events(events):
 
 
 # =========================================================
-# ANALISAR UMA PARTIDA
+# UMA PARTIDA
 # =========================================================
 
 def analyze_match(match_id):
 
     events = get_events(match_id)
-
     stats = analyze_events(events)
 
     return {
@@ -247,7 +242,7 @@ def analyze_match(match_id):
 
 
 # =========================================================
-# UTILIDADES DO HISTÓRICO
+# UTILIDADES
 # =========================================================
 
 def team_name_from_match(match, side):
@@ -286,7 +281,182 @@ def average(values):
 
 
 # =========================================================
-# HISTÓRICO DE UM TIME
+# FREQUÊNCIAS
+# =========================================================
+
+FREQUENCY_LINES = {
+
+    "goals": [
+        0.5,
+        1.5,
+        2.5
+    ],
+
+    "shots": [
+        7.5,
+        8.5,
+        9.5,
+        10.5,
+        11.5,
+        12.5
+    ],
+
+    "shots_on_target": [
+        1.5,
+        2.5,
+        3.5,
+        4.5,
+        5.5,
+        6.5
+    ],
+
+    "corners": [
+        2.5,
+        3.5,
+        4.5,
+        5.5,
+        6.5,
+        7.5,
+        8.5,
+        9.5
+    ],
+
+    "fouls_committed": [
+        7.5,
+        8.5,
+        9.5,
+        10.5,
+        11.5,
+        12.5
+    ],
+
+    "yellow_cards": [
+        0.5,
+        1.5,
+        2.5,
+        3.5,
+        4.5
+    ]
+}
+
+
+def calculate_frequency(values, line):
+
+    valid_values = [
+        value
+        for value in values
+        if isinstance(value, (int, float))
+    ]
+
+    total = len(valid_values)
+
+    if total == 0:
+        return {
+            "hits": 0,
+            "sample": 0,
+            "rate": None
+        }
+
+    hits = sum(
+        1
+        for value in valid_values
+        if value > line
+    )
+
+    return {
+        "hits": hits,
+        "sample": total,
+        "rate": round(
+            (hits / total) * 100,
+            1
+        )
+    }
+
+
+def build_frequencies(stat_values):
+
+    result = {}
+
+    for stat, lines in FREQUENCY_LINES.items():
+
+        values = stat_values.get(
+            stat,
+            []
+        )
+
+        stat_result = {}
+
+        for line in lines:
+
+            label = f"over_{line}"
+
+            stat_result[label] = (
+                calculate_frequency(
+                    values,
+                    line
+                )
+            )
+
+        result[stat] = stat_result
+
+    return result
+
+
+# =========================================================
+# FREQUÊNCIAS TOTAIS DA PARTIDA
+# =========================================================
+
+def build_match_total_frequencies(games):
+
+    total_values = defaultdict(list)
+
+    for game in games:
+
+        produced = game.get(
+            "produced",
+            {}
+        )
+
+        conceded = game.get(
+            "conceded",
+            {}
+        )
+
+        for stat in [
+            "goals",
+            "shots",
+            "shots_on_target",
+            "corners",
+            "fouls_committed",
+            "yellow_cards"
+        ]:
+
+            produced_value = produced.get(stat)
+            conceded_value = conceded.get(stat)
+
+            if (
+                isinstance(
+                    produced_value,
+                    (int, float)
+                )
+                and isinstance(
+                    conceded_value,
+                    (int, float)
+                )
+            ):
+
+                total_values[stat].append(
+                    produced_value
+                    + conceded_value
+                )
+
+    return build_frequencies(
+        total_values
+    )
+
+
+# =========================================================
+# HISTÓRICO
 # =========================================================
 
 def analyze_team_history(
@@ -304,9 +474,9 @@ def analyze_team_history(
 
     team_matches = []
 
-    # =====================================================
-    # LOCALIZA PARTIDAS DO TIME
-    # =====================================================
+    # -----------------------------------------------------
+    # SELECIONA OS JOGOS
+    # -----------------------------------------------------
 
     for match in matches:
 
@@ -320,52 +490,74 @@ def analyze_team_history(
             "away"
         )
 
-        if team_name not in [home, away]:
+        if team_name not in [
+            home,
+            away
+        ]:
             continue
 
-        if venue == "home" and home != team_name:
+        if (
+            venue == "home"
+            and home != team_name
+        ):
             continue
 
-        if venue == "away" and away != team_name:
+        if (
+            venue == "away"
+            and away != team_name
+        ):
             continue
 
-        date_text = match.get("match_date")
+        date_text = match.get(
+            "match_date"
+        )
 
         try:
-            date_value = datetime.strptime(
-                date_text,
-                "%Y-%m-%d"
+
+            date_value = (
+                datetime.strptime(
+                    date_text,
+                    "%Y-%m-%d"
+                )
             )
+
         except Exception:
             continue
 
         team_matches.append({
-            "date_value": date_value,
-            "match": match
+            "date_value":
+                date_value,
+
+            "match":
+                match
         })
 
-    # Mais recentes primeiro
     team_matches.sort(
-        key=lambda item: item["date_value"],
+        key=lambda item:
+            item["date_value"],
         reverse=True
     )
 
-    selected = team_matches[:limit]
+    selected = team_matches[
+        :limit
+    ]
 
     games = []
 
     produced = defaultdict(list)
     conceded = defaultdict(list)
 
-    # =====================================================
-    # ANALISA JOGO POR JOGO
-    # =====================================================
+    # -----------------------------------------------------
+    # JOGO A JOGO
+    # -----------------------------------------------------
 
     for item in selected:
 
         match = item["match"]
 
-        match_id = match.get("match_id")
+        match_id = match.get(
+            "match_id"
+        )
 
         home = team_name_from_match(
             match,
@@ -377,11 +569,17 @@ def analyze_team_history(
             "away"
         )
 
-        events = get_events(match_id)
+        events = get_events(
+            match_id
+        )
 
-        stats = analyze_events(events)
+        stats = analyze_events(
+            events
+        )
 
-        team_stats = stats.get(team_name)
+        team_stats = stats.get(
+            team_name
+        )
 
         opponent_name, opponent_stats = (
             find_opponent(
@@ -390,7 +588,6 @@ def analyze_team_history(
             )
         )
 
-        # Nunca inventamos dado ausente
         if (
             team_stats is None
             or opponent_stats is None
@@ -404,49 +601,114 @@ def analyze_team_history(
         )
 
         game = {
-            "match_id": match_id,
-            "date": match.get("match_date"),
-            "home": home,
-            "away": away,
-            "venue": location,
-            "opponent": opponent_name,
+            "match_id":
+                match_id,
 
-            "produced": dict(team_stats),
-            "conceded": dict(opponent_stats)
+            "date":
+                match.get(
+                    "match_date"
+                ),
+
+            "home":
+                home,
+
+            "away":
+                away,
+
+            "venue":
+                location,
+
+            "opponent":
+                opponent_name,
+
+            "produced":
+                dict(team_stats),
+
+            "conceded":
+                dict(opponent_stats)
         }
 
-        games.append(game)
+        games.append(
+            game
+        )
 
-        for stat, value in team_stats.items():
-            produced[stat].append(value)
+        for stat, value in (
+            team_stats.items()
+        ):
 
-        for stat, value in opponent_stats.items():
-            conceded[stat].append(value)
+            if isinstance(
+                value,
+                (int, float)
+            ):
+                produced[
+                    stat
+                ].append(value)
 
-    # =====================================================
-    # MÉDIAS REAIS
-    # =====================================================
+        for stat, value in (
+            opponent_stats.items()
+        ):
+
+            if isinstance(
+                value,
+                (int, float)
+            ):
+                conceded[
+                    stat
+                ].append(value)
+
+    # -----------------------------------------------------
+    # MÉDIAS
+    # -----------------------------------------------------
 
     produced_averages = {}
 
     conceded_averages = {}
 
-    for stat, values in produced.items():
-        produced_averages[stat] = average(
-            values
-        )
+    for stat, values in (
+        produced.items()
+    ):
 
-    for stat, values in conceded.items():
-        conceded_averages[stat] = average(
-            values
-        )
+        produced_averages[
+            stat
+        ] = average(values)
 
-    # =====================================================
+    for stat, values in (
+        conceded.items()
+    ):
+
+        conceded_averages[
+            stat
+        ] = average(values)
+
+    # -----------------------------------------------------
+    # FREQUÊNCIAS REAIS
+    # -----------------------------------------------------
+
+    produced_frequencies = (
+        build_frequencies(
+            produced
+        )
+    )
+
+    conceded_frequencies = (
+        build_frequencies(
+            conceded
+        )
+    )
+
+    match_total_frequencies = (
+        build_match_total_frequencies(
+            games
+        )
+    )
+
+    # -----------------------------------------------------
     # RESULTADO
-    # =====================================================
+    # -----------------------------------------------------
 
     return {
-        "team": team_name,
+        "team":
+            team_name,
 
         "competition_id":
             competition_id,
@@ -474,6 +736,18 @@ def analyze_team_history(
                 conceded_averages
         },
 
+        "frequencies": {
+
+            "produced":
+                produced_frequencies,
+
+            "conceded":
+                conceded_frequencies,
+
+            "match_total":
+                match_total_frequencies
+        },
+
         "integrity": {
             "match_by_match":
                 True,
@@ -482,6 +756,9 @@ def analyze_team_history(
                 False,
 
             "frequencies_from_averages":
-                False
+                False,
+
+            "frequency_denominator":
+                "actual_valid_games"
         }
     }
