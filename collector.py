@@ -4,7 +4,13 @@ from datetime import datetime
 
 BASE_URL = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
 TIMEOUT = 20
-MIN_VALID_SAMPLE = 5
+
+# =========================================================
+# REGRAS DE INTEGRIDADE DA AMOSTRA
+# =========================================================
+
+MIN_VALID_SAMPLE = 4
+MIN_COVERAGE = 0.80
 
 INTEGRITY_NOTE = (
     "Confidence Score mede força da evidência e não probabilidade calibrada. "
@@ -25,12 +31,15 @@ def download_json(url):
 
 
 def get_competitions():
-    return download_json(f"{BASE_URL}/competitions.json")
+    return download_json(
+        f"{BASE_URL}/competitions.json"
+    )
 
 
 def get_matches(competition_id, season_id):
     return download_json(
-        f"{BASE_URL}/matches/{competition_id}/{season_id}.json"
+        f"{BASE_URL}/matches/"
+        f"{competition_id}/{season_id}.json"
     )
 
 
@@ -194,7 +203,10 @@ def analyze_events(events):
     result = {}
 
     for team, stats in teams.items():
-        stats["xg"] = round(stats["xg"], 2)
+        stats["xg"] = round(
+            stats["xg"],
+            2
+        )
         result[team] = stats
 
     return result
@@ -322,7 +334,10 @@ def build_frequencies(stat_values):
     result = {}
 
     for stat, lines in FREQUENCY_LINES.items():
-        values = stat_values.get(stat, [])
+        values = stat_values.get(
+            stat,
+            []
+        )
 
         result[stat] = {}
 
@@ -361,7 +376,9 @@ def build_match_total_frequencies(games):
                     a + b
                 )
 
-    return build_frequencies(total_values)
+    return build_frequencies(
+        total_values
+    )
 
 
 # =========================================================
@@ -372,7 +389,10 @@ def evaluate_sample(
     matches_analyzed,
     requested_matches
 ):
-    if not isinstance(matches_analyzed, int):
+    if not isinstance(
+        matches_analyzed,
+        int
+    ):
         return {
             "status": "insufficient_data",
             "valid": False,
@@ -382,7 +402,10 @@ def evaluate_sample(
         }
 
     if (
-        not isinstance(requested_matches, int)
+        not isinstance(
+            requested_matches,
+            int
+        )
         or requested_matches <= 0
     ):
         return {
@@ -393,17 +416,20 @@ def evaluate_sample(
             "coverage": None
         }
 
-    coverage = round(
+    coverage_ratio = (
         matches_analyzed
         / requested_matches
-        * 100,
+    )
+
+    coverage = round(
+        coverage_ratio * 100,
         1
     )
 
     valid = (
         matches_analyzed >= MIN_VALID_SAMPLE
         and
-        matches_analyzed >= requested_matches
+        coverage_ratio >= MIN_COVERAGE
     )
 
     return {
@@ -421,8 +447,14 @@ def evaluate_sample(
 
 def evaluate_history_sample(history):
     return evaluate_sample(
-        history.get("matches_analyzed", 0),
-        history.get("requested_matches", 0)
+        history.get(
+            "matches_analyzed",
+            0
+        ),
+        history.get(
+            "requested_matches",
+            0
+        )
     )
 
 
@@ -455,7 +487,10 @@ def analyze_team_history(
             "away"
         )
 
-        if team_name not in [home, away]:
+        if team_name not in [
+            home,
+            away
+        ]:
             continue
 
         if (
@@ -470,7 +505,9 @@ def analyze_team_history(
         ):
             continue
 
-        date_text = match.get("match_date")
+        date_text = match.get(
+            "match_date"
+        )
 
         try:
             date_value = datetime.strptime(
@@ -486,7 +523,8 @@ def analyze_team_history(
         })
 
     team_matches.sort(
-        key=lambda item: item["date_value"],
+        key=lambda item:
+            item["date_value"],
         reverse=True
     )
 
@@ -500,7 +538,9 @@ def analyze_team_history(
     for item in selected:
         match = item["match"]
 
-        match_id = match.get("match_id")
+        match_id = match.get(
+            "match_id"
+        )
 
         home = team_name_from_match(
             match,
@@ -512,10 +552,17 @@ def analyze_team_history(
             "away"
         )
 
-        events = get_events(match_id)
-        stats = analyze_events(events)
+        events = get_events(
+            match_id
+        )
 
-        team_stats = stats.get(team_name)
+        stats = analyze_events(
+            events
+        )
+
+        team_stats = stats.get(
+            team_name
+        )
 
         opponent_name, opponent_stats = (
             find_opponent(
@@ -538,33 +585,53 @@ def analyze_team_history(
 
         game = {
             "match_id": match_id,
-            "date": match.get("match_date"),
+            "date": match.get(
+                "match_date"
+            ),
             "home": home,
             "away": away,
             "venue": location,
             "opponent": opponent_name,
-            "produced": dict(team_stats),
-            "conceded": dict(opponent_stats)
+            "produced":
+                dict(team_stats),
+            "conceded":
+                dict(opponent_stats)
         }
 
         games.append(game)
 
-        for stat, value in team_stats.items():
-            if isinstance(value, (int, float)):
-                produced[stat].append(value)
+        for stat, value in (
+            team_stats.items()
+        ):
+            if isinstance(
+                value,
+                (int, float)
+            ):
+                produced[
+                    stat
+                ].append(value)
 
-        for stat, value in opponent_stats.items():
-            if isinstance(value, (int, float)):
-                conceded[stat].append(value)
+        for stat, value in (
+            opponent_stats.items()
+        ):
+            if isinstance(
+                value,
+                (int, float)
+            ):
+                conceded[
+                    stat
+                ].append(value)
 
     produced_averages = {
         stat: average(values)
-        for stat, values in produced.items()
+        for stat, values
+        in produced.items()
     }
 
     conceded_averages = {
         stat: average(values)
-        for stat, values in conceded.items()
+        for stat, values
+        in conceded.items()
     }
 
     sample_quality = evaluate_sample(
@@ -574,25 +641,38 @@ def analyze_team_history(
 
     return {
         "team": team_name,
-        "competition_id": competition_id,
-        "season_id": season_id,
-        "requested_matches": limit,
-        "matches_analyzed": len(games),
-        "venue": venue,
-        "sample_quality": sample_quality,
-        "games": games,
+        "competition_id":
+            competition_id,
+        "season_id":
+            season_id,
+        "requested_matches":
+            limit,
+        "matches_analyzed":
+            len(games),
+        "venue":
+            venue,
+        "sample_quality":
+            sample_quality,
+        "games":
+            games,
 
         "averages": {
-            "produced": produced_averages,
-            "conceded": conceded_averages
+            "produced":
+                produced_averages,
+            "conceded":
+                conceded_averages
         },
 
         "frequencies": {
             "produced":
-                build_frequencies(produced),
+                build_frequencies(
+                    produced
+                ),
 
             "conceded":
-                build_frequencies(conceded),
+                build_frequencies(
+                    conceded
+                ),
 
             "match_total":
                 build_match_total_frequencies(
@@ -601,9 +681,12 @@ def analyze_team_history(
         },
 
         "integrity": {
-            "match_by_match": True,
-            "missing_values_invented": False,
-            "frequencies_from_averages": False,
+            "match_by_match":
+                True,
+            "missing_values_invented":
+                False,
+            "frequencies_from_averages":
+                False,
             "frequency_denominator":
                 "actual_valid_games",
             "insufficient_sample_can_recommend":
@@ -659,17 +742,22 @@ def build_cross(
         .get("conceded", {})
     )
 
-    team_sample = evaluate_history_sample(
-        team_history
+    team_sample = (
+        evaluate_history_sample(
+            team_history
+        )
     )
 
-    opponent_sample = evaluate_history_sample(
-        opponent_history
+    opponent_sample = (
+        evaluate_history_sample(
+            opponent_history
+        )
     )
 
     cross_valid = (
         team_sample["valid"]
-        and opponent_sample["valid"]
+        and
+        opponent_sample["valid"]
     )
 
     for stat in [
@@ -681,12 +769,16 @@ def build_cross(
         "fouls_committed",
         "yellow_cards"
     ]:
-        produced_value = team_produced.get(
-            stat
+        produced_value = (
+            team_produced.get(
+                stat
+            )
         )
 
         conceded_value = (
-            opponent_conceded.get(stat)
+            opponent_conceded.get(
+                stat
+            )
         )
 
         result[stat] = {
@@ -709,7 +801,8 @@ def build_cross(
                 (
                     "eligible"
                     if cross_valid
-                    else "insufficient_data"
+                    else
+                    "insufficient_data"
                 )
         }
 
@@ -749,43 +842,58 @@ def evaluate_prematch_samples(
     }
 
     general_valid = (
-        samples["home_general"]["valid"]
+        samples[
+            "home_general"
+        ]["valid"]
         and
-        samples["away_general"]["valid"]
+        samples[
+            "away_general"
+        ]["valid"]
     )
 
     home_away_valid = (
-        samples["home_at_home"]["valid"]
+        samples[
+            "home_at_home"
+        ]["valid"]
         and
-        samples["away_at_away"]["valid"]
+        samples[
+            "away_at_away"
+        ]["valid"]
     )
 
     return {
         "samples": samples,
 
         "general_cross": {
-            "valid": general_valid,
+            "valid":
+                general_valid,
             "confidence":
                 (
                     "eligible"
                     if general_valid
-                    else "insufficient_data"
+                    else
+                    "insufficient_data"
                 )
         },
 
         "home_away_cross": {
-            "valid": home_away_valid,
+            "valid":
+                home_away_valid,
             "confidence":
                 (
                     "eligible"
                     if home_away_valid
-                    else "insufficient_data"
+                    else
+                    "insufficient_data"
                 )
         },
 
         "integrity_rule":
             (
-                "Amostras incompletas podem ser "
+                "Amostra valida exige no minimo "
+                "4 jogos e pelo menos 80% de "
+                "cobertura da amostra solicitada. "
+                "Amostras insuficientes podem ser "
                 "exibidas, mas nao podem gerar "
                 "confianca ou recomendacao."
             )
@@ -813,7 +921,10 @@ def confidence_label(score):
 
 
 def frequency_points(rate):
-    if not isinstance(rate, (int, float)):
+    if not isinstance(
+        rate,
+        (int, float)
+    ):
         return 0
 
     if rate >= 100:
@@ -847,7 +958,9 @@ def projection_points(
     ):
         return 0
 
-    margin = projection - line
+    margin = (
+        projection - line
+    )
 
     if margin >= 3:
         return 6
@@ -891,7 +1004,8 @@ def venue_points(
             general_rate,
             (int, float)
         )
-        and venue_rate >= general_rate
+        and
+        venue_rate >= general_rate
     ):
         return 1
 
@@ -909,7 +1023,9 @@ def get_frequency(
         .get("frequencies", {})
         .get(section, {})
         .get(stat, {})
-        .get(f"over_{line}")
+        .get(
+            f"over_{line}"
+        )
     )
 
     if not frequency:
@@ -964,23 +1080,30 @@ def build_team_opportunity(
 
     samples_valid = (
         general_sample["valid"]
-        and venue_sample["valid"]
-        and opponent_general_sample["valid"]
-        and opponent_venue_sample["valid"]
+        and
+        venue_sample["valid"]
+        and
+        opponent_general_sample["valid"]
+        and
+        opponent_venue_sample["valid"]
     )
 
-    general_frequency = get_frequency(
-        general_history,
-        "produced",
-        stat,
-        line
+    general_frequency = (
+        get_frequency(
+            general_history,
+            "produced",
+            stat,
+            line
+        )
     )
 
-    venue_frequency = get_frequency(
-        venue_history,
-        "produced",
-        stat,
-        line
+    venue_frequency = (
+        get_frequency(
+            venue_history,
+            "produced",
+            stat,
+            line
+        )
     )
 
     opponent_conceded_general = (
@@ -1015,13 +1138,20 @@ def build_team_opportunity(
 
     if not samples_valid:
         return {
-            "team": team_name,
-            "side": side,
-            "stat": stat,
-            "market": f"over_{line}",
-            "line": line,
-            "eligible": False,
-            "confidence_score": None,
+            "team":
+                team_name,
+            "side":
+                side,
+            "stat":
+                stat,
+            "market":
+                f"over_{line}",
+            "line":
+                line,
+            "eligible":
+                False,
+            "confidence_score":
+                None,
             "confidence_label":
                 "DADOS INSUFICIENTES",
 
@@ -1046,35 +1176,59 @@ def build_team_opportunity(
             },
 
             "reason":
-                "Amostra insuficiente para gerar recomendacao."
+                (
+                    "Amostra insuficiente "
+                    "para gerar recomendacao."
+                )
         }
 
     rates = [
-        general_frequency.get("rate"),
-        venue_frequency.get("rate"),
-        opponent_conceded_general.get("rate"),
-        opponent_conceded_venue.get("rate")
+        general_frequency.get(
+            "rate"
+        ),
+        venue_frequency.get(
+            "rate"
+        ),
+        opponent_conceded_general.get(
+            "rate"
+        ),
+        opponent_conceded_venue.get(
+            "rate"
+        )
     ]
 
     valid_rates = [
         rate
         for rate in rates
-        if isinstance(rate, (int, float))
+        if isinstance(
+            rate,
+            (int, float)
+        )
     ]
 
     if len(valid_rates) < 4:
         return {
-            "team": team_name,
-            "side": side,
-            "stat": stat,
-            "market": f"over_{line}",
-            "line": line,
-            "eligible": False,
-            "confidence_score": None,
+            "team":
+                team_name,
+            "side":
+                side,
+            "stat":
+                stat,
+            "market":
+                f"over_{line}",
+            "line":
+                line,
+            "eligible":
+                False,
+            "confidence_score":
+                None,
             "confidence_label":
                 "DADOS INSUFICIENTES",
             "reason":
-                "Frequencias necessarias nao estao completas."
+                (
+                    "Frequencias necessarias "
+                    "nao estao completas."
+                )
         }
 
     combined_rate = round(
@@ -1092,19 +1246,33 @@ def build_team_opportunity(
 
     score = 0
 
-    score += frequency_points(
-        combined_rate
+    frequency_score = (
+        frequency_points(
+            combined_rate
+        )
     )
 
-    score += projection_points(
-        venue_projection,
-        line
+    projection_score = (
+        projection_points(
+            venue_projection,
+            line
+        )
     )
 
-    score += venue_points(
-        general_frequency.get("rate"),
-        venue_frequency.get("rate")
+    venue_score = (
+        venue_points(
+            general_frequency.get(
+                "rate"
+            ),
+            venue_frequency.get(
+                "rate"
+            )
+        )
     )
+
+    score += frequency_score
+    score += projection_score
+    score += venue_score
 
     agreement_points = 0
 
@@ -1113,22 +1281,30 @@ def build_team_opportunity(
             venue_projection,
             (int, float)
         )
-        and venue_projection > line
+        and
+        venue_projection > line
     ):
         agreement_points += 1
 
     if (
-        venue_frequency.get("rate", 0) >= 60
+        venue_frequency.get(
+            "rate",
+            0
+        ) >= 60
         and
         opponent_conceded_venue.get(
-            "rate", 0
+            "rate",
+            0
         ) >= 60
     ):
         agreement_points += 1
 
     score += agreement_points
 
-    score = min(score, 20)
+    score = min(
+        score,
+        20
+    )
 
     eligible = (
         combined_rate >= 50
@@ -1137,24 +1313,34 @@ def build_team_opportunity(
             venue_projection,
             (int, float)
         )
-        and venue_projection > line
-        and score >= 10
+        and
+        venue_projection > line
+        and
+        score >= 10
     )
 
     return {
-        "team": team_name,
-        "side": side,
-        "stat": stat,
-        "market": f"over_{line}",
-        "line": line,
+        "team":
+            team_name,
+        "side":
+            side,
+        "stat":
+            stat,
+        "market":
+            f"over_{line}",
+        "line":
+            line,
 
-        "eligible": eligible,
+        "eligible":
+            eligible,
 
         "confidence_score":
             score,
 
         "confidence_label":
-            confidence_label(score),
+            confidence_label(
+                score
+            ),
 
         "combined_evidence_rate":
             combined_rate,
@@ -1181,25 +1367,13 @@ def build_team_opportunity(
 
         "score_breakdown": {
             "frequency":
-                frequency_points(
-                    combined_rate
-                ),
+                frequency_score,
 
             "projection":
-                projection_points(
-                    venue_projection,
-                    line
-                ),
+                projection_score,
 
             "venue":
-                venue_points(
-                    general_frequency.get(
-                        "rate"
-                    ),
-                    venue_frequency.get(
-                        "rate"
-                    )
-                ),
+                venue_score,
 
             "agreement":
                 agreement_points
@@ -1225,41 +1399,76 @@ def build_opportunities(
 ):
     opportunities = []
 
-    # Mercados individuais atualmente suportados
-    for stat, lines in FREQUENCY_LINES.items():
-
-        # Não usamos xG como mercado de aposta.
-        # xG permanece como dado contextual/projetivo.
-
+    for stat, lines in (
+        FREQUENCY_LINES.items()
+    ):
         for line in lines:
 
             home_opportunity = (
                 build_team_opportunity(
-                    team_name=home_team,
-                    side="home",
-                    stat=stat,
-                    line=line,
-                    general_history=home_general,
-                    venue_history=home_at_home,
-                    opponent_general=away_general,
-                    opponent_venue=away_at_away,
-                    general_cross=home_cross_general,
-                    venue_cross=home_cross_venue
+                    team_name=
+                        home_team,
+
+                    side=
+                        "home",
+
+                    stat=
+                        stat,
+
+                    line=
+                        line,
+
+                    general_history=
+                        home_general,
+
+                    venue_history=
+                        home_at_home,
+
+                    opponent_general=
+                        away_general,
+
+                    opponent_venue=
+                        away_at_away,
+
+                    general_cross=
+                        home_cross_general,
+
+                    venue_cross=
+                        home_cross_venue
                 )
             )
 
             away_opportunity = (
                 build_team_opportunity(
-                    team_name=away_team,
-                    side="away",
-                    stat=stat,
-                    line=line,
-                    general_history=away_general,
-                    venue_history=away_at_away,
-                    opponent_general=home_general,
-                    opponent_venue=home_at_home,
-                    general_cross=away_cross_general,
-                    venue_cross=away_cross_venue
+                    team_name=
+                        away_team,
+
+                    side=
+                        "away",
+
+                    stat=
+                        stat,
+
+                    line=
+                        line,
+
+                    general_history=
+                        away_general,
+
+                    venue_history=
+                        away_at_away,
+
+                    opponent_general=
+                        home_general,
+
+                    opponent_venue=
+                        home_at_home,
+
+                    general_cross=
+                        away_cross_general,
+
+                    venue_cross=
+                        away_cross_venue
                 )
             )
 
@@ -1274,7 +1483,9 @@ def build_opportunities(
     eligible = [
         item
         for item in opportunities
-        if item.get("eligible") is True
+        if item.get(
+            "eligible"
+        ) is True
     ]
 
     eligible.sort(
@@ -1294,7 +1505,9 @@ def build_opportunities(
     blocked = [
         item
         for item in opportunities
-        if item.get("eligible") is False
+        if item.get(
+            "eligible"
+        ) is False
     ]
 
     return {
@@ -1311,10 +1524,14 @@ def build_opportunities(
             len(blocked),
 
         "confidence_scale": {
-            "17_20": "FORTE",
-            "14_16": "BOA",
-            "10_13": "MODERADA",
-            "0_9": "FRACA"
+            "17_20":
+                "FORTE",
+            "14_16":
+                "BOA",
+            "10_13":
+                "MODERADA",
+            "0_9":
+                "FRACA"
         },
 
         "integrity_note":
@@ -1333,56 +1550,72 @@ def analyze_prematch(
     away_team,
     limit=5
 ):
-    home_general = analyze_team_history(
-        competition_id,
-        season_id,
-        home_team,
-        limit=limit,
-        venue="all"
+    home_general = (
+        analyze_team_history(
+            competition_id,
+            season_id,
+            home_team,
+            limit=limit,
+            venue="all"
+        )
     )
 
-    away_general = analyze_team_history(
-        competition_id,
-        season_id,
-        away_team,
-        limit=limit,
-        venue="all"
+    away_general = (
+        analyze_team_history(
+            competition_id,
+            season_id,
+            away_team,
+            limit=limit,
+            venue="all"
+        )
     )
 
-    home_at_home = analyze_team_history(
-        competition_id,
-        season_id,
-        home_team,
-        limit=limit,
-        venue="home"
+    home_at_home = (
+        analyze_team_history(
+            competition_id,
+            season_id,
+            home_team,
+            limit=limit,
+            venue="home"
+        )
     )
 
-    away_at_away = analyze_team_history(
-        competition_id,
-        season_id,
-        away_team,
-        limit=limit,
-        venue="away"
+    away_at_away = (
+        analyze_team_history(
+            competition_id,
+            season_id,
+            away_team,
+            limit=limit,
+            venue="away"
+        )
     )
 
-    home_cross_general = build_cross(
-        home_general,
-        away_general
+    home_cross_general = (
+        build_cross(
+            home_general,
+            away_general
+        )
     )
 
-    away_cross_general = build_cross(
-        away_general,
-        home_general
+    away_cross_general = (
+        build_cross(
+            away_general,
+            home_general
+        )
     )
 
-    home_cross_venue = build_cross(
-        home_at_home,
-        away_at_away
+    home_cross_venue = (
+        build_cross(
+            home_at_home,
+            away_at_away
+        )
     )
 
-    away_cross_venue = build_cross(
-        away_at_away,
-        home_at_home
+    away_cross_venue = (
+        build_cross(
+            away_at_away,
+            home_at_home
+        )
     )
 
     sample_quality = (
@@ -1394,33 +1627,46 @@ def analyze_prematch(
         )
     )
 
-    opportunities = build_opportunities(
-        home_team=home_team,
-        away_team=away_team,
+    opportunities = (
+        build_opportunities(
+            home_team=
+                home_team,
 
-        home_general=home_general,
-        away_general=away_general,
+            away_team=
+                away_team,
 
-        home_at_home=home_at_home,
-        away_at_away=away_at_away,
+            home_general=
+                home_general,
 
-        home_cross_general=
-            home_cross_general,
+            away_general=
+                away_general,
 
-        away_cross_general=
-            away_cross_general,
+            home_at_home=
+                home_at_home,
 
-        home_cross_venue=
-            home_cross_venue,
+            away_at_away=
+                away_at_away,
 
-        away_cross_venue=
-            away_cross_venue
+            home_cross_general=
+                home_cross_general,
+
+            away_cross_general=
+                away_cross_general,
+
+            home_cross_venue=
+                home_cross_venue,
+
+            away_cross_venue=
+                away_cross_venue
+        )
     )
 
     return {
         "match": {
-            "home": home_team,
-            "away": away_team
+            "home":
+                home_team,
+            "away":
+                away_team
         },
 
         "competition_id":
@@ -1493,6 +1739,12 @@ def analyze_prematch(
 
             "confidence_score_is_probability":
                 False,
+
+            "minimum_valid_games":
+                MIN_VALID_SAMPLE,
+
+            "minimum_coverage":
+                MIN_COVERAGE,
 
             "integrity_note":
                 INTEGRITY_NOTE
