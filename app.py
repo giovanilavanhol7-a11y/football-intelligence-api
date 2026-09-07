@@ -11,14 +11,16 @@ from collector_2627 import (
     fixtures_2627_by_date,
     get_sportmonks_fixture,
     analyze_fixture_2627,
+    analyze_team_history_2627,
     match_coverage
 )
 import requests
 
+
 app = Flask(__name__)
 
 API_NAME = "Football Intelligence API"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 
 # =========================================================
@@ -53,7 +55,7 @@ def health():
 
 
 # =========================================================
-# INFORMAÇÕES
+# INFO
 # =========================================================
 
 @app.route("/api/v1/info")
@@ -86,10 +88,12 @@ def info():
             "temporada_2026_27",
             "fixtures_2026_27",
             "fixture_raw_2026_27",
-            "fixture_stats_2026_27"
+            "fixture_stats_2026_27",
+            "team_history_2026_27"
         ],
 
         "future_modules": [
+            "prematch_2026_27",
             "jogadores",
             "arbitro",
             "contexto",
@@ -293,6 +297,95 @@ def fixture_2627_stats(fixture_id):
 
 
 # =========================================================
+# HISTÓRICO REAL 2026/27 POR TIME
+# =========================================================
+
+@app.route("/api/v1/2627/team/<int:team_id>/history")
+def team_history_2627(team_id):
+    try:
+        season_id = request.args.get(
+            "season_id",
+            type=int
+        )
+
+        limit = request.args.get(
+            "limit",
+            default=5,
+            type=int
+        )
+
+        venue = request.args.get(
+            "venue",
+            default="all",
+            type=str
+        )
+
+        before_date = request.args.get(
+            "before_date",
+            default=None,
+            type=str
+        )
+
+        if season_id is None:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "season_id é obrigatório"
+            }), 400
+
+        if limit not in [5, 10]:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "limit deve ser 5 ou 10"
+            }), 400
+
+        if venue not in [
+            "all",
+            "home",
+            "away"
+        ]:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "venue deve ser all, home ou away"
+            }), 400
+
+        result = analyze_team_history_2627(
+            team_id=team_id,
+            season_id=season_id,
+            limit=limit,
+            venue=venue,
+            before_date=before_date
+        )
+
+        return jsonify({
+            "status": "ok",
+            "api": API_NAME,
+            "version": VERSION,
+            **result
+        })
+
+    except ValueError as error:
+        return jsonify({
+            "status": "invalid_request",
+            "error": str(error)
+        }), 400
+
+    except requests.exceptions.RequestException as error:
+        return jsonify({
+            "status": "source_error",
+            "source": "Sportmonks",
+            "team_id": team_id,
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+        return jsonify({
+            "status": "error",
+            "team_id": team_id,
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
 # COMPETIÇÕES HISTÓRICAS
 # =========================================================
 
@@ -305,21 +398,20 @@ def competitions():
 
         for item in data:
             result.append({
-                "competition_id": item.get(
-                    "competition_id"
-                ),
-                "competition": item.get(
-                    "competition_name"
-                ),
-                "country": item.get(
-                    "country_name"
-                ),
-                "season_id": item.get(
-                    "season_id"
-                ),
-                "season": item.get(
-                    "season_name"
-                )
+                "competition_id":
+                    item.get("competition_id"),
+
+                "competition":
+                    item.get("competition_name"),
+
+                "country":
+                    item.get("country_name"),
+
+                "season_id":
+                    item.get("season_id"),
+
+                "season":
+                    item.get("season_name")
             })
 
         return jsonify({
@@ -381,33 +473,44 @@ def matches(competition_id, season_id):
             )
 
             result.append({
-                "match_id": match.get(
-                    "match_id"
-                ),
-                "date": match.get(
-                    "match_date"
-                ),
-                "kick_off": match.get(
-                    "kick_off"
-                ),
-                "competition": competition.get(
-                    "competition_name"
-                ),
-                "season": season.get(
-                    "season_name"
-                ),
-                "home": home.get(
-                    "home_team_name"
-                ),
-                "away": away.get(
-                    "away_team_name"
-                ),
-                "home_score": match.get(
-                    "home_score"
-                ),
-                "away_score": match.get(
-                    "away_score"
-                )
+                "match_id":
+                    match.get("match_id"),
+
+                "date":
+                    match.get("match_date"),
+
+                "kick_off":
+                    match.get("kick_off"),
+
+                "competition":
+                    competition.get(
+                        "competition_name"
+                    ),
+
+                "season":
+                    season.get(
+                        "season_name"
+                    ),
+
+                "home":
+                    home.get(
+                        "home_team_name"
+                    ),
+
+                "away":
+                    away.get(
+                        "away_team_name"
+                    ),
+
+                "home_score":
+                    match.get(
+                        "home_score"
+                    ),
+
+                "away_score":
+                    match.get(
+                        "away_score"
+                    )
             })
 
         return jsonify({
@@ -483,7 +586,7 @@ def match_stats(match_id):
 
 
 # =========================================================
-# HISTÓRICO DO TIME
+# HISTÓRICO DO TIME — STATSBOMB
 # =========================================================
 
 @app.route("/api/v1/team/history")
