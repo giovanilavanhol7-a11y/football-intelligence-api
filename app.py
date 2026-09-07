@@ -8,14 +8,15 @@ from collector import (
 )
 from collector_2627 import (
     collector_2627_status,
-    fixtures_2627_by_date
+    fixtures_2627_by_date,
+    get_sportmonks_fixture
 )
 import requests
 
 app = Flask(__name__)
 
 API_NAME = "Football Intelligence API"
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 
 # =========================================================
@@ -84,7 +85,8 @@ def info():
             "confidence_score",
             "ranking_oportunidades",
             "temporada_2026_27",
-            "fixtures_2026_27"
+            "fixtures_2026_27",
+            "fixture_raw_2026_27"
         ],
 
         "future_modules": [
@@ -188,6 +190,62 @@ def fixtures_2627():
     except Exception as error:
         return jsonify({
             "status": "error",
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# INSPEÇÃO DE PARTIDA REAL 2026/27
+# =========================================================
+
+@app.route("/api/v1/2627/fixture/<int:fixture_id>/raw")
+def fixture_2627_raw(fixture_id):
+    try:
+        fixture = get_sportmonks_fixture(
+            fixture_id
+        )
+
+        if not fixture:
+            return jsonify({
+                "status": "not_found",
+                "fixture_id": fixture_id
+            }), 404
+
+        return jsonify({
+            "status": "ok",
+            "season": "2026/27",
+            "source": "Sportmonks",
+            "fixture_id": fixture_id,
+            "fixture": fixture
+        })
+
+    except requests.exceptions.HTTPError as error:
+        status_code = (
+            error.response.status_code
+            if error.response is not None
+            else None
+        )
+
+        return jsonify({
+            "status": "source_error",
+            "source": "Sportmonks",
+            "fixture_id": fixture_id,
+            "http_status": status_code,
+            "error": str(error)
+        }), 502
+
+    except requests.exceptions.RequestException as error:
+        return jsonify({
+            "status": "source_error",
+            "source": "Sportmonks",
+            "fixture_id": fixture_id,
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+        return jsonify({
+            "status": "error",
+            "fixture_id": fixture_id,
             "error": str(error)
         }), 500
 
@@ -428,29 +486,29 @@ def team_history():
         if competition_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error": (
+                "error":
                     "competition_id é obrigatório"
-                )
             }), 400
 
         if season_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error": (
+                "error":
                     "season_id é obrigatório"
-                )
             }), 400
 
         if not team:
             return jsonify({
                 "status": "invalid_request",
-                "error": "team é obrigatório"
+                "error":
+                    "team é obrigatório"
             }), 400
 
         if limit not in [5, 10]:
             return jsonify({
                 "status": "invalid_request",
-                "error": "limit deve ser 5 ou 10"
+                "error":
+                    "limit deve ser 5 ou 10"
             }), 400
 
         if venue not in [
@@ -528,35 +586,36 @@ def prematch():
         if competition_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error": (
+                "error":
                     "competition_id é obrigatório"
-                )
             }), 400
 
         if season_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error": (
+                "error":
                     "season_id é obrigatório"
-                )
             }), 400
 
         if not home_team:
             return jsonify({
                 "status": "invalid_request",
-                "error": "home é obrigatório"
+                "error":
+                    "home é obrigatório"
             }), 400
 
         if not away_team:
             return jsonify({
                 "status": "invalid_request",
-                "error": "away é obrigatório"
+                "error":
+                    "away é obrigatório"
             }), 400
 
         if limit not in [5, 10]:
             return jsonify({
                 "status": "invalid_request",
-                "error": "limit deve ser 5 ou 10"
+                "error":
+                    "limit deve ser 5 ou 10"
             }), 400
 
         result = analyze_prematch(
