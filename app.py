@@ -12,6 +12,7 @@ from collector_2627 import (
     get_sportmonks_fixture,
     analyze_fixture_2627,
     analyze_team_history_2627,
+    analyze_prematch_2627,
     match_coverage
 )
 import requests
@@ -20,7 +21,7 @@ import requests
 app = Flask(__name__)
 
 API_NAME = "Football Intelligence API"
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 
 
 # =========================================================
@@ -64,14 +65,18 @@ def info():
         "api": API_NAME,
         "version": VERSION,
 
-        "markets": [
-            "gols",
+        "active_2026_27_stats": [
+            "goals",
+            "corners",
+            "yellow_cards",
+            "red_cards"
+        ],
+
+        "reserved_future_stats": [
             "xg",
-            "escanteios",
-            "finalizacoes",
-            "chutes_no_gol",
-            "cartoes",
-            "faltas"
+            "shots",
+            "shots_on_target",
+            "fouls_committed"
         ],
 
         "modules": [
@@ -89,11 +94,11 @@ def info():
             "fixtures_2026_27",
             "fixture_raw_2026_27",
             "fixture_stats_2026_27",
-            "team_history_2026_27"
+            "team_history_2026_27",
+            "prematch_2026_27"
         ],
 
         "future_modules": [
-            "prematch_2026_27",
             "jogadores",
             "arbitro",
             "contexto",
@@ -239,10 +244,6 @@ def fixture_2627_stats(fixture_id):
                 "fixture_id": fixture_id
             }), 404
 
-        coverage = match_coverage(
-            result
-        )
-
         return jsonify({
             "status": "ok",
             "api": API_NAME,
@@ -265,7 +266,9 @@ def fixture_2627_stats(fixture_id):
                 {}
             ),
 
-            "coverage": coverage,
+            "coverage": match_coverage(
+                result
+            ),
 
             "integrity": {
                 "missing_values_invented": False,
@@ -297,7 +300,7 @@ def fixture_2627_stats(fixture_id):
 
 
 # =========================================================
-# HISTÓRICO REAL 2026/27 POR TIME
+# HISTÓRICO 2026/27 POR TIME
 # =========================================================
 
 @app.route("/api/v1/2627/team/<int:team_id>/history")
@@ -381,6 +384,99 @@ def team_history_2627(team_id):
         return jsonify({
             "status": "error",
             "team_id": team_id,
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# PRÉ-JOGO 2026/27
+# =========================================================
+
+@app.route("/api/v1/2627/prematch")
+def prematch_2627():
+    try:
+        home_team_id = request.args.get(
+            "home_team_id",
+            type=int
+        )
+
+        away_team_id = request.args.get(
+            "away_team_id",
+            type=int
+        )
+
+        season_id = request.args.get(
+            "season_id",
+            type=int
+        )
+
+        limit = request.args.get(
+            "limit",
+            default=5,
+            type=int
+        )
+
+        before_date = request.args.get(
+            "before_date",
+            default=None,
+            type=str
+        )
+
+        if home_team_id is None:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "home_team_id é obrigatório"
+            }), 400
+
+        if away_team_id is None:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "away_team_id é obrigatório"
+            }), 400
+
+        if season_id is None:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "season_id é obrigatório"
+            }), 400
+
+        if limit not in [5, 10]:
+            return jsonify({
+                "status": "invalid_request",
+                "error": "limit deve ser 5 ou 10"
+            }), 400
+
+        result = analyze_prematch_2627(
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            season_id=season_id,
+            limit=limit,
+            before_date=before_date
+        )
+
+        return jsonify({
+            "status": "ok",
+            "api": API_NAME,
+            "version": VERSION,
+            **result
+        })
+
+    except ValueError as error:
+        return jsonify({
+            "status": "invalid_request",
+            "error": str(error)
+        }), 400
+
+    except requests.exceptions.RequestException as error:
+        return jsonify({
+            "status": "source_error",
+            "source": "Sportmonks",
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+        return jsonify({
+            "status": "error",
             "error": str(error)
         }), 500
 
@@ -586,7 +682,7 @@ def match_stats(match_id):
 
 
 # =========================================================
-# HISTÓRICO DO TIME — STATSBOMB
+# HISTÓRICO STATSBOMB
 # =========================================================
 
 @app.route("/api/v1/team/history")
@@ -680,7 +776,7 @@ def team_history():
 
 
 # =========================================================
-# PRÉ-JOGO HISTÓRICO
+# PRÉ-JOGO HISTÓRICO STATSBOMB
 # =========================================================
 
 @app.route("/api/v1/prematch")
