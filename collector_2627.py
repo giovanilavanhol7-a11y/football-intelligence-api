@@ -16,7 +16,6 @@ SEASON = "2026/27"
 MIN_VALID_SAMPLE = 4
 MIN_COVERAGE = 0.80
 
-# Estatísticas que realmente entram na análise agora.
 ACTIVE_STATS = [
     "goals",
     "corners",
@@ -24,7 +23,6 @@ ACTIVE_STATS = [
     "red_cards"
 ]
 
-# Estrutura reservada para expansão futura.
 STAT_FIELDS = [
     "goals",
     "xg",
@@ -81,7 +79,7 @@ MARKET_LINES = {
 
 
 # =========================================================
-# MAPEAMENTO SPORTMONKS
+# SPORTMONKS
 # =========================================================
 
 CONFIRMED_TYPE_IDS = {
@@ -102,7 +100,6 @@ STAT_CODE_MAP = {
     "redcards": "red_cards",
     "red-cards": "red_cards",
 
-    # Preparado para futuras fontes/planos.
     "shots-total": "shots",
     "total-shots": "shots",
     "shots": "shots",
@@ -239,10 +236,6 @@ def sportmonks_request(endpoint, params=None):
     return response.json()
 
 
-# =========================================================
-# CONEXÃO
-# =========================================================
-
 def test_sportmonks_connection():
     if not SPORTMONKS_API_TOKEN:
         return {
@@ -264,10 +257,7 @@ def test_sportmonks_connection():
         return {
             "connected": True,
             "authenticated": True,
-            "response_valid": isinstance(
-                data,
-                list
-            ),
+            "response_valid": isinstance(data, list),
             "fixtures_received": (
                 len(data)
                 if isinstance(data, list)
@@ -369,10 +359,7 @@ def extract_participants(fixture):
         participants = []
 
     for participant in participants:
-        if not isinstance(
-            participant,
-            dict
-        ):
+        if not isinstance(participant, dict):
             continue
 
         meta = participant.get(
@@ -395,9 +382,7 @@ def extract_participants(fixture):
                 participant.get("name"),
 
             "short_code":
-                participant.get(
-                    "short_code"
-                )
+                participant.get("short_code")
         }
 
         if location == "home":
@@ -410,7 +395,7 @@ def extract_participants(fixture):
 
 
 # =========================================================
-# NORMALIZAÇÃO BÁSICA
+# NORMALIZAÇÃO
 # =========================================================
 
 def normalize_sportmonks_fixture(fixture):
@@ -512,7 +497,7 @@ def fixtures_2627_by_date(date):
 
 
 # =========================================================
-# IDENTIFICAÇÃO DAS ESTATÍSTICAS
+# IDENTIFICAÇÃO DE ESTATÍSTICAS
 # =========================================================
 
 def normalize_stat_code(value):
@@ -546,10 +531,7 @@ def identify_stat_field(stat):
         {}
     )
 
-    if not isinstance(
-        stat_type,
-        dict
-    ):
+    if not isinstance(stat_type, dict):
         return None
 
     code = normalize_stat_code(
@@ -576,7 +558,7 @@ def identify_stat_field(stat):
 
 
 # =========================================================
-# PARSER
+# PARSER DE ESTATÍSTICAS
 # =========================================================
 
 def parse_fixture_statistics(fixture):
@@ -588,10 +570,7 @@ def parse_fixture_statistics(fixture):
         []
     )
 
-    if not isinstance(
-        statistics,
-        list
-    ):
+    if not isinstance(statistics, list):
         statistics = []
 
     recognized = []
@@ -610,10 +589,7 @@ def parse_fixture_statistics(fixture):
             {}
         )
 
-        if not isinstance(
-            stat_type,
-            dict
-        ):
+        if not isinstance(stat_type, dict):
             stat_type = {}
 
         type_id = stat.get(
@@ -648,26 +624,35 @@ def parse_fixture_statistics(fixture):
             unrecognized.append({
                 "type_id":
                     type_id,
+
                 "code":
                     code,
+
                 "developer_name":
                     developer_name,
+
                 "location":
                     location,
+
                 "value":
                     value
             })
+
             continue
 
         recognized.append({
             "field":
                 field,
+
             "type_id":
                 type_id,
+
             "code":
                 code,
+
             "location":
                 location,
+
             "value":
                 value
         })
@@ -692,10 +677,6 @@ def parse_fixture_statistics(fixture):
             unrecognized
     }
 
-
-# =========================================================
-# PARTIDA NORMALIZADA
-# =========================================================
 
 def normalize_fixture_with_stats(fixture):
     basic = normalize_sportmonks_fixture(
@@ -724,19 +705,13 @@ def normalize_fixture_with_stats(fixture):
             "home": {
                 "team": (
                     home_team.get("name")
-                    if isinstance(
-                        home_team,
-                        dict
-                    )
+                    if isinstance(home_team, dict)
                     else None
                 ),
 
                 "team_id": (
                     home_team.get("id")
-                    if isinstance(
-                        home_team,
-                        dict
-                    )
+                    if isinstance(home_team, dict)
                     else None
                 ),
 
@@ -747,19 +722,13 @@ def normalize_fixture_with_stats(fixture):
             "away": {
                 "team": (
                     away_team.get("name")
-                    if isinstance(
-                        away_team,
-                        dict
-                    )
+                    if isinstance(away_team, dict)
                     else None
                 ),
 
                 "team_id": (
                     away_team.get("id")
-                    if isinstance(
-                        away_team,
-                        dict
-                    )
+                    if isinstance(away_team, dict)
                     else None
                 ),
 
@@ -778,9 +747,7 @@ def normalize_fixture_with_stats(fixture):
     }
 
 
-def analyze_fixture_2627(
-    fixture_id
-):
+def analyze_fixture_2627(fixture_id):
     fixture = get_sportmonks_fixture(
         fixture_id
     )
@@ -847,27 +814,15 @@ def match_coverage(match):
     return {
         "home":
             stats_coverage(
-                home.get(
-                    "stats",
-                    {}
-                )
-                if isinstance(
-                    home,
-                    dict
-                )
+                home.get("stats", {})
+                if isinstance(home, dict)
                 else {}
             ),
 
         "away":
             stats_coverage(
-                away.get(
-                    "stats",
-                    {}
-                )
-                if isinstance(
-                    away,
-                    dict
-                )
+                away.get("stats", {})
+                if isinstance(away, dict)
                 else {}
             )
     }
@@ -877,10 +832,7 @@ def match_coverage(match):
 # VISÃO DO TIME
 # =========================================================
 
-def team_view(
-    match,
-    team_id
-):
+def team_view(match, team_id):
     if not isinstance(match, dict):
         return None
 
@@ -942,24 +894,18 @@ def team_view(
 
         "produced":
             normalize_stats(
-                own.get(
-                    "stats",
-                    {}
-                )
+                own.get("stats", {})
             ),
 
         "conceded":
             normalize_stats(
-                opponent.get(
-                    "stats",
-                    {}
-                )
+                opponent.get("stats", {})
             )
     }
 
 
 # =========================================================
-# VALORES / MÉDIAS
+# VALORES E MÉDIAS
 # =========================================================
 
 def valid_values(
@@ -975,10 +921,7 @@ def valid_values(
             {}
         )
 
-        if not isinstance(
-            stats,
-            dict
-        ):
+        if not isinstance(stats, dict):
             continue
 
         value = stats.get(
@@ -1124,7 +1067,7 @@ def build_frequencies(history):
 
 
 # =========================================================
-# QUALIDADE GERAL DA AMOSTRA
+# QUALIDADE DA AMOSTRA
 # =========================================================
 
 def sample_quality(
@@ -1133,20 +1076,11 @@ def sample_quality(
 ):
     if requested <= 0:
         return {
-            "valid":
-                False,
-
-            "matches":
-                actual,
-
-            "requested":
-                requested,
-
-            "coverage":
-                None,
-
-            "status":
-                "insufficient_data"
+            "valid": False,
+            "matches": actual,
+            "requested": requested,
+            "coverage": None,
+            "status": "insufficient_data"
         }
 
     coverage_ratio = (
@@ -1181,10 +1115,6 @@ def sample_quality(
         )
     }
 
-
-# =========================================================
-# QUALIDADE POR ESTATÍSTICA
-# =========================================================
 
 def metric_side_quality(
     history,
@@ -1255,9 +1185,9 @@ def metric_quality(
     )
 
     valid = (
-        produced.get("valid") is True
+        produced["valid"]
         and
-        conceded.get("valid") is True
+        conceded["valid"]
     )
 
     return {
@@ -1295,7 +1225,7 @@ def build_metric_quality(
 
 
 # =========================================================
-# HISTÓRICO 2026/27
+# HISTÓRICO
 # =========================================================
 
 def collect_team_history_2627(
@@ -1356,10 +1286,7 @@ def collect_team_history_2627(
     candidates = []
 
     for raw in raw_fixtures:
-        if not isinstance(
-            raw,
-            dict
-        ):
+        if not isinstance(raw, dict):
             continue
 
         if raw.get(
@@ -1372,22 +1299,13 @@ def collect_team_history_2627(
             {}
         )
 
-        if not isinstance(
-            state,
-            dict
-        ):
+        if not isinstance(state, dict):
             state = {}
 
         state_code = (
-            state.get(
-                "developer_name"
-            )
-            or state.get(
-                "short_name"
-            )
-            or state.get(
-                "state"
-            )
+            state.get("developer_name")
+            or state.get("short_name")
+            or state.get("state")
         )
 
         if state_code != "FT":
@@ -1404,9 +1322,7 @@ def collect_team_history_2627(
 
     candidates.sort(
         key=lambda item:
-            item.get(
-                "starting_at"
-            ) or "",
+            item.get("starting_at") or "",
         reverse=True
     )
 
@@ -1465,7 +1381,7 @@ def collect_team_history_2627(
 
 
 # =========================================================
-# ANÁLISE DO HISTÓRICO
+# HISTÓRICO ANALISADO
 # =========================================================
 
 def analyze_team_history_2627(
@@ -1639,7 +1555,7 @@ def build_cross(
 
 
 # =========================================================
-# VALIDAÇÃO DO CRUZAMENTO POR ESTATÍSTICA
+# QUALIDADE DO CRUZAMENTO
 # =========================================================
 
 def cross_metric_quality(
@@ -1654,20 +1570,18 @@ def cross_metric_quality(
         field
     )
 
-    opponent_conceded_values = (
-        valid_values(
-            opponent_history,
-            "conceded",
-            field
-        )
+    conceded_values = valid_values(
+        opponent_history,
+        "conceded",
+        field
     )
 
     produced_sample = len(
         produced_values
     )
 
-    opponent_sample = len(
-        opponent_conceded_values
+    conceded_sample = len(
+        conceded_values
     )
 
     produced_coverage = (
@@ -1676,8 +1590,8 @@ def cross_metric_quality(
         else 0
     )
 
-    opponent_coverage = (
-        opponent_sample / requested
+    conceded_coverage = (
+        conceded_sample / requested
         if requested > 0
         else 0
     )
@@ -1688,16 +1602,16 @@ def cross_metric_quality(
         produced_coverage >= MIN_COVERAGE
     )
 
-    opponent_valid = (
-        opponent_sample >= MIN_VALID_SAMPLE
+    conceded_valid = (
+        conceded_sample >= MIN_VALID_SAMPLE
         and
-        opponent_coverage >= MIN_COVERAGE
+        conceded_coverage >= MIN_COVERAGE
     )
 
     valid = (
         produced_valid
         and
-        opponent_valid
+        conceded_valid
     )
 
     return {
@@ -1722,16 +1636,16 @@ def cross_metric_quality(
 
         "opponent_conceded": {
             "valid":
-                opponent_valid,
+                conceded_valid,
 
             "sample":
-                opponent_sample,
+                conceded_sample,
 
             "requested":
                 requested,
 
             "coverage": round(
-                opponent_coverage * 100,
+                conceded_coverage * 100,
                 1
             )
         },
@@ -1765,7 +1679,7 @@ def build_cross_quality(
 
 
 # =========================================================
-# EVIDÊNCIA POR MERCADO
+# EVIDÊNCIA POR ESTATÍSTICA
 # =========================================================
 
 def build_market_evidence(
@@ -1815,23 +1729,15 @@ def build_market_evidence(
         )
 
         general_valid = (
-            home_general_quality[
-                "valid"
-            ]
+            home_general_quality["valid"]
             and
-            away_general_quality[
-                "valid"
-            ]
+            away_general_quality["valid"]
         )
 
         venue_valid = (
-            home_venue_quality[
-                "valid"
-            ]
+            home_venue_quality["valid"]
             and
-            away_venue_quality[
-                "valid"
-            ]
+            away_venue_quality["valid"]
         )
 
         if (
@@ -1852,8 +1758,7 @@ def build_market_evidence(
                 evidence,
 
             "eligible": (
-                evidence
-                in [
+                evidence in [
                     "complete",
                     "partial"
                 ]
@@ -1882,7 +1787,565 @@ def build_market_evidence(
 
 
 # =========================================================
-# PRÉ-JOGO 2026/27
+# CONFIDENCE SCORE
+# =========================================================
+
+def confidence_label(score):
+    if score >= 17:
+        return "FORTE"
+
+    if score >= 14:
+        return "BOA"
+
+    if score >= 10:
+        return "MODERADA"
+
+    return "FRACA"
+
+
+def frequency_for_line(
+    history,
+    side,
+    field,
+    line
+):
+    return calculate_hit_rate(
+        history,
+        side,
+        field,
+        line
+    )
+
+
+def score_line_opportunity(
+    team_history,
+    opponent_history,
+    team_venue_history,
+    opponent_venue_history,
+    field,
+    line,
+    requested
+):
+    # ---------------------------------------------
+    # GERAL — PRODUZIDO
+    # ---------------------------------------------
+
+    general_produced = (
+        frequency_for_line(
+            team_history,
+            "produced",
+            field,
+            line
+        )
+    )
+
+    # ---------------------------------------------
+    # GERAL — ADVERSÁRIO CEDEU
+    # ---------------------------------------------
+
+    general_conceded = (
+        frequency_for_line(
+            opponent_history,
+            "conceded",
+            field,
+            line
+        )
+    )
+
+    general_quality = (
+        cross_metric_quality(
+            team_history,
+            opponent_history,
+            field,
+            requested
+        )
+    )
+
+    if not general_quality["valid"]:
+        return {
+            "eligible": False,
+            "reason": "general_sample_insufficient"
+        }
+
+    produced_rate = (
+        general_produced.get("rate")
+    )
+
+    conceded_rate = (
+        general_conceded.get("rate")
+    )
+
+    if (
+        produced_rate is None
+        or
+        conceded_rate is None
+    ):
+        return {
+            "eligible": False,
+            "reason": "frequency_unavailable"
+        }
+
+    # ---------------------------------------------
+    # CASA × FORA
+    # ---------------------------------------------
+
+    venue_produced = (
+        frequency_for_line(
+            team_venue_history,
+            "produced",
+            field,
+            line
+        )
+    )
+
+    venue_conceded = (
+        frequency_for_line(
+            opponent_venue_history,
+            "conceded",
+            field,
+            line
+        )
+    )
+
+    venue_quality = (
+        cross_metric_quality(
+            team_venue_history,
+            opponent_venue_history,
+            field,
+            requested
+        )
+    )
+
+    # ---------------------------------------------
+    # MÉDIAS
+    # ---------------------------------------------
+
+    general_cross = cross_metric(
+        team_history,
+        opponent_history,
+        field
+    )
+
+    venue_cross = cross_metric(
+        team_venue_history,
+        opponent_venue_history,
+        field
+    )
+
+    # ---------------------------------------------
+    # SCORE — MÁXIMO 20
+    #
+    # 8 pts: frequências gerais
+    # 4 pts: força da amostra geral
+    # 4 pts: Casa × Fora
+    # 4 pts: margem da média cruzada
+    # ---------------------------------------------
+
+    score = 0.0
+
+    # Frequência produzida geral: 0–4
+    score += (
+        produced_rate / 100
+    ) * 4
+
+    # Frequência cedida pelo adversário: 0–4
+    score += (
+        conceded_rate / 100
+    ) * 4
+
+    # Qualidade da amostra geral: 0–4
+    produced_coverage = (
+        general_quality[
+            "team_produced"
+        ]["coverage"]
+    )
+
+    conceded_coverage = (
+        general_quality[
+            "opponent_conceded"
+        ]["coverage"]
+    )
+
+    average_coverage = (
+        produced_coverage
+        + conceded_coverage
+    ) / 2
+
+    score += (
+        average_coverage / 100
+    ) * 4
+
+    # Casa × Fora: máximo 4.
+    # Só ganha peso integral quando a amostra do recorte é válida.
+    venue_score = 0.0
+
+    venue_produced_rate = (
+        venue_produced.get("rate")
+    )
+
+    venue_conceded_rate = (
+        venue_conceded.get("rate")
+    )
+
+    if (
+        venue_quality["valid"]
+        and
+        venue_produced_rate is not None
+        and
+        venue_conceded_rate is not None
+    ):
+        venue_rate = (
+            venue_produced_rate
+            + venue_conceded_rate
+        ) / 2
+
+        venue_score = (
+            venue_rate / 100
+        ) * 4
+
+    score += venue_score
+
+    # Margem da média cruzada: máximo 4.
+    #
+    # Não é frequência.
+    # Apenas mede se a média cruzada está acima da linha.
+    general_cross_average = (
+        general_cross.get(
+            "cross_average"
+        )
+    )
+
+    margin_score = 0.0
+
+    if general_cross_average is not None:
+        margin = (
+            general_cross_average
+            - line
+        )
+
+        if margin >= 2:
+            margin_score = 4.0
+
+        elif margin >= 1:
+            margin_score = 3.0
+
+        elif margin >= 0.5:
+            margin_score = 2.0
+
+        elif margin > 0:
+            margin_score = 1.0
+
+    score += margin_score
+
+    # O modelo acima possui potencial bruto de 24 pontos:
+    # 8 frequência + 4 cobertura + 4 venue + 4 margem.
+    #
+    # Normalizamos para nossa referência de 20.
+    raw_score = score
+
+    normalized_score = round(
+        min(
+            20,
+            raw_score / 24 * 20
+        ),
+        1
+    )
+
+    return {
+        "eligible":
+            True,
+
+        "field":
+            field,
+
+        "line":
+            line,
+
+        "market":
+            f"{field}_over_{line}",
+
+        "confidence_score":
+            normalized_score,
+
+        "confidence_label":
+            confidence_label(
+                normalized_score
+            ),
+
+        "evidence": {
+            "general": {
+                "team_produced":
+                    general_produced,
+
+                "opponent_conceded":
+                    general_conceded,
+
+                "cross_average":
+                    general_cross_average,
+
+                "sample_valid":
+                    True
+            },
+
+            "home_away": {
+                "team_produced":
+                    venue_produced,
+
+                "opponent_conceded":
+                    venue_conceded,
+
+                "cross_average":
+                    venue_cross.get(
+                        "cross_average"
+                    ),
+
+                "sample_valid":
+                    venue_quality[
+                        "valid"
+                    ]
+            }
+        },
+
+        "score_components": {
+            "raw_score_before_normalization":
+                round(
+                    raw_score,
+                    2
+                ),
+
+            "general_produced_rate":
+                produced_rate,
+
+            "general_opponent_conceded_rate":
+                conceded_rate,
+
+            "general_average_coverage":
+                round(
+                    average_coverage,
+                    1
+                ),
+
+            "venue_component_used":
+                venue_quality["valid"],
+
+            "margin_component":
+                margin_score
+        },
+
+        "integrity": {
+            "score_is_probability":
+                False,
+
+            "cross_average_is_hit_rate":
+                False,
+
+            "small_venue_sample_promoted":
+                False
+        }
+    }
+
+
+# =========================================================
+# RANKING DE OPORTUNIDADES
+# =========================================================
+
+def build_opportunity_ranking(
+    home_team_id,
+    away_team_id,
+    home_general,
+    away_general,
+    home_home,
+    away_away,
+    market_evidence,
+    requested
+):
+    opportunities = []
+    blocked = []
+
+    team_configs = [
+        {
+            "side": "home",
+            "team_id": home_team_id,
+            "team_general": home_general,
+            "opponent_general": away_general,
+            "team_venue": home_home,
+            "opponent_venue": away_away
+        },
+        {
+            "side": "away",
+            "team_id": away_team_id,
+            "team_general": away_general,
+            "opponent_general": home_general,
+            "team_venue": away_away,
+            "opponent_venue": home_home
+        }
+    ]
+
+    for config in team_configs:
+        for field in ACTIVE_STATS:
+            field_evidence = (
+                market_evidence.get(
+                    field,
+                    {}
+                )
+            )
+
+            if not field_evidence.get(
+                "eligible",
+                False
+            ):
+                for line in MARKET_LINES.get(
+                    field,
+                    []
+                ):
+                    blocked.append({
+                        "side":
+                            config["side"],
+
+                        "team_id":
+                            config["team_id"],
+
+                        "field":
+                            field,
+
+                        "line":
+                            line,
+
+                        "reason":
+                            "metric_sample_insufficient"
+                    })
+
+                continue
+
+            for line in MARKET_LINES.get(
+                field,
+                []
+            ):
+                result = (
+                    score_line_opportunity(
+                        team_history=config[
+                            "team_general"
+                        ],
+
+                        opponent_history=config[
+                            "opponent_general"
+                        ],
+
+                        team_venue_history=config[
+                            "team_venue"
+                        ],
+
+                        opponent_venue_history=config[
+                            "opponent_venue"
+                        ],
+
+                        field=field,
+
+                        line=line,
+
+                        requested=requested
+                    )
+                )
+
+                if not result.get(
+                    "eligible"
+                ):
+                    blocked.append({
+                        "side":
+                            config["side"],
+
+                        "team_id":
+                            config["team_id"],
+
+                        "field":
+                            field,
+
+                        "line":
+                            line,
+
+                        "reason":
+                            result.get(
+                                "reason"
+                            )
+                    })
+
+                    continue
+
+                result["side"] = (
+                    config["side"]
+                )
+
+                result["team_id"] = (
+                    config["team_id"]
+                )
+
+                opportunities.append(
+                    result
+                )
+
+    opportunities.sort(
+        key=lambda item:
+            (
+                item.get(
+                    "confidence_score",
+                    0
+                ),
+                item.get(
+                    "evidence",
+                    {}
+                )
+                .get(
+                    "general",
+                    {}
+                )
+                .get(
+                    "team_produced",
+                    {}
+                )
+                .get(
+                    "rate",
+                    0
+                )
+            ),
+        reverse=True
+    )
+
+    top_opportunities = [
+        item
+        for item in opportunities
+        if item.get(
+            "confidence_score",
+            0
+        ) >= 10
+    ][:10]
+
+    return {
+        "evaluated_total":
+            len(opportunities)
+            + len(blocked),
+
+        "eligible_total":
+            len(opportunities),
+
+        "blocked_total":
+            len(blocked),
+
+        "ranked_total":
+            len(top_opportunities),
+
+        "top_opportunities":
+            top_opportunities,
+
+        "all_eligible_opportunities":
+            opportunities,
+
+        "blocked":
+            blocked
+    }
+
+
+# =========================================================
+# PRÉ-JOGO
 # =========================================================
 
 def analyze_prematch_2627(
@@ -1896,10 +2359,6 @@ def analyze_prematch_2627(
         raise ValueError(
             "limit deve ser 5 ou 10"
         )
-
-    # ---------------------------------------------
-    # GERAL
-    # ---------------------------------------------
 
     home_general = (
         collect_team_history_2627(
@@ -1921,10 +2380,6 @@ def analyze_prematch_2627(
         )
     )
 
-    # ---------------------------------------------
-    # CASA × FORA
-    # ---------------------------------------------
-
     home_home = (
         collect_team_history_2627(
             team_id=home_team_id,
@@ -1944,10 +2399,6 @@ def analyze_prematch_2627(
             before_date=before_date
         )
     )
-
-    # ---------------------------------------------
-    # QUALIDADE GERAL
-    # ---------------------------------------------
 
     sample_quality_result = {
         "home_general":
@@ -1975,10 +2426,6 @@ def analyze_prematch_2627(
             )
     }
 
-    # ---------------------------------------------
-    # QUALIDADE POR ESTATÍSTICA
-    # ---------------------------------------------
-
     metric_quality_result = {
         "home_general":
             build_metric_quality(
@@ -2004,10 +2451,6 @@ def analyze_prematch_2627(
                 limit
             )
     }
-
-    # ---------------------------------------------
-    # EVIDÊNCIA POR MERCADO
-    # ---------------------------------------------
 
     market_evidence = (
         build_market_evidence(
@@ -2036,10 +2479,6 @@ def analyze_prematch_2627(
             "eligible"
         ) is not True
     ]
-
-    # ---------------------------------------------
-    # PRODUZIDO × CEDIDO
-    # ---------------------------------------------
 
     produced_x_conceded = {
         "general": {
@@ -2070,10 +2509,6 @@ def analyze_prematch_2627(
                 )
         }
     }
-
-    # ---------------------------------------------
-    # QUALIDADE DOS CRUZAMENTOS
-    # ---------------------------------------------
 
     cross_quality = {
         "general": {
@@ -2108,6 +2543,34 @@ def analyze_prematch_2627(
                 )
         }
     }
+
+    opportunity_ranking = (
+        build_opportunity_ranking(
+            home_team_id=
+                home_team_id,
+
+            away_team_id=
+                away_team_id,
+
+            home_general=
+                home_general,
+
+            away_general=
+                away_general,
+
+            home_home=
+                home_home,
+
+            away_away=
+                away_away,
+
+            market_evidence=
+                market_evidence,
+
+            requested=
+                limit
+        )
+    )
 
     return {
         "season":
@@ -2221,6 +2684,9 @@ def analyze_prematch_2627(
         "cross_quality":
             cross_quality,
 
+        "opportunity_ranking":
+            opportunity_ranking,
+
         "recommendation_gate": {
             "eligible_stats":
                 eligible_stats,
@@ -2230,7 +2696,9 @@ def analyze_prematch_2627(
 
             "has_eligible_market":
                 len(
-                    eligible_stats
+                    opportunity_ranking[
+                        "top_opportunities"
+                    ]
                 ) > 0
         },
 
@@ -2433,6 +2901,31 @@ def collector_2627_status():
                 "yellow_cards"
         },
 
+        "confidence_engine": {
+            "enabled":
+                True,
+
+            "maximum_score":
+                20,
+
+            "labels": {
+                "17-20":
+                    "FORTE",
+
+                "14-16.9":
+                    "BOA",
+
+                "10-13.9":
+                    "MODERADA",
+
+                "0-9.9":
+                    "FRACA"
+            },
+
+            "score_is_probability":
+                False
+        },
+
         "connection_test":
             connection,
 
@@ -2456,8 +2949,6 @@ def collector_2627_status():
                 INTEGRITY_NOTE_2627
         },
 
-        "next_step": (
-            "Validar market_evidence por estatística "
-            "antes do Confidence Score."
-        )
+        "next_step":
+            "Validar ranking em partida real."
     }
