@@ -7,14 +7,15 @@ from collector import (
     analyze_prematch
 )
 from collector_2627 import (
-    collector_2627_status
+    collector_2627_status,
+    fixtures_2627_by_date
 )
 import requests
 
 app = Flask(__name__)
 
 API_NAME = "Football Intelligence API"
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 
 # =========================================================
@@ -30,7 +31,7 @@ def home():
         "mode": "pre-match",
         "seasons": {
             "historical": "StatsBomb Open Data",
-            "2026_27": "collector_2627"
+            "2026_27": "Sportmonks"
         },
         "message": (
             "API própria de inteligência "
@@ -82,13 +83,15 @@ def info():
             "pre_match",
             "confidence_score",
             "ranking_oportunidades",
-            "temporada_2026_27"
+            "temporada_2026_27",
+            "fixtures_2026_27"
         ],
 
         "future_modules": [
             "jogadores",
             "arbitro",
-            "contexto"
+            "contexto",
+            "storage_2026_27"
         ],
 
         "integrity": {
@@ -121,6 +124,70 @@ def status_2627():
         return jsonify({
             "status": "error",
             "season": "2026/27",
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# FIXTURES REAIS 2026/27 POR DATA
+# =========================================================
+
+@app.route("/api/v1/2627/fixtures")
+def fixtures_2627():
+    try:
+        date = request.args.get(
+            "date",
+            type=str
+        )
+
+        if not date:
+            return jsonify({
+                "status": "invalid_request",
+                "error": (
+                    "date é obrigatório. "
+                    "Use YYYY-MM-DD."
+                )
+            }), 400
+
+        result = fixtures_2627_by_date(
+            date
+        )
+
+        return jsonify({
+            "status": "ok",
+            **result
+        })
+
+    except ValueError as error:
+        return jsonify({
+            "status": "invalid_request",
+            "error": str(error)
+        }), 400
+
+    except requests.exceptions.HTTPError as error:
+        status_code = (
+            error.response.status_code
+            if error.response is not None
+            else None
+        )
+
+        return jsonify({
+            "status": "source_error",
+            "source": "Sportmonks",
+            "http_status": status_code,
+            "error": str(error)
+        }), 502
+
+    except requests.exceptions.RequestException as error:
+        return jsonify({
+            "status": "source_error",
+            "source": "Sportmonks",
+            "error": str(error)
+        }), 502
+
+    except Exception as error:
+        return jsonify({
+            "status": "error",
             "error": str(error)
         }), 500
 
@@ -271,7 +338,7 @@ def matches(competition_id, season_id):
 
 
 # =========================================================
-# ESTATÍSTICAS DE UMA PARTIDA
+# ESTATÍSTICAS DE PARTIDA HISTÓRICA
 # =========================================================
 
 @app.route("/api/v1/match/<int:match_id>/stats")
@@ -297,8 +364,10 @@ def match_stats(match_id):
             return jsonify({
                 "status": "not_found",
                 "match_id": match_id,
-                "error":
-                    "Partida não encontrada na fonte."
+                "error": (
+                    "Partida não encontrada "
+                    "na fonte."
+                )
             }), 404
 
         return jsonify({
@@ -359,29 +428,29 @@ def team_history():
         if competition_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error":
+                "error": (
                     "competition_id é obrigatório"
+                )
             }), 400
 
         if season_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error":
+                "error": (
                     "season_id é obrigatório"
+                )
             }), 400
 
         if not team:
             return jsonify({
                 "status": "invalid_request",
-                "error":
-                    "team é obrigatório"
+                "error": "team é obrigatório"
             }), 400
 
         if limit not in [5, 10]:
             return jsonify({
                 "status": "invalid_request",
-                "error":
-                    "limit deve ser 5 ou 10"
+                "error": "limit deve ser 5 ou 10"
             }), 400
 
         if venue not in [
@@ -391,25 +460,18 @@ def team_history():
         ]:
             return jsonify({
                 "status": "invalid_request",
-                "error":
-                    "venue deve ser all, home ou away"
+                "error": (
+                    "venue deve ser all, "
+                    "home ou away"
+                )
             }), 400
 
         result = analyze_team_history(
-            competition_id=
-                competition_id,
-
-            season_id=
-                season_id,
-
-            team_name=
-                team,
-
-            limit=
-                limit,
-
-            venue=
-                venue
+            competition_id=competition_id,
+            season_id=season_id,
+            team_name=team,
+            limit=limit,
+            venue=venue
         )
 
         return jsonify({
@@ -431,7 +493,7 @@ def team_history():
 
 
 # =========================================================
-# ANÁLISE PRÉ-JOGO
+# ANÁLISE PRÉ-JOGO HISTÓRICA
 # =========================================================
 
 @app.route("/api/v1/prematch")
@@ -466,53 +528,43 @@ def prematch():
         if competition_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error":
+                "error": (
                     "competition_id é obrigatório"
+                )
             }), 400
 
         if season_id is None:
             return jsonify({
                 "status": "invalid_request",
-                "error":
+                "error": (
                     "season_id é obrigatório"
+                )
             }), 400
 
         if not home_team:
             return jsonify({
                 "status": "invalid_request",
-                "error":
-                    "home é obrigatório"
+                "error": "home é obrigatório"
             }), 400
 
         if not away_team:
             return jsonify({
                 "status": "invalid_request",
-                "error":
-                    "away é obrigatório"
+                "error": "away é obrigatório"
             }), 400
 
         if limit not in [5, 10]:
             return jsonify({
                 "status": "invalid_request",
-                "error":
-                    "limit deve ser 5 ou 10"
+                "error": "limit deve ser 5 ou 10"
             }), 400
 
         result = analyze_prematch(
-            competition_id=
-                competition_id,
-
-            season_id=
-                season_id,
-
-            home_team=
-                home_team,
-
-            away_team=
-                away_team,
-
-            limit=
-                limit
+            competition_id=competition_id,
+            season_id=season_id,
+            home_team=home_team,
+            away_team=away_team,
+            limit=limit
         )
 
         return jsonify({
