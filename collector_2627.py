@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # =========================================================
@@ -10,7 +10,7 @@ from datetime import datetime
 SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3/football"
 SPORTMONKS_API_TOKEN = os.getenv("SPORTMONKS_API_TOKEN")
 
-TIMEOUT = 25
+TIMEOUT = 30
 SEASON = "2026/27"
 
 MIN_VALID_SAMPLE = 4
@@ -22,10 +22,6 @@ INTEGRITY_NOTE_2627 = (
     "Frequências X/5/X/10 não são criadas a partir de médias."
 )
 
-
-# =========================================================
-# CAMPOS OFICIAIS DA NOSSA API
-# =========================================================
 
 STAT_FIELDS = [
     "goals",
@@ -40,21 +36,7 @@ STAT_FIELDS = [
 
 
 # =========================================================
-# SPORTMONKS -> FOOTBALL INTELLIGENCE
-# =========================================================
-#
-# IDs já confirmados diretamente nos jogos reais testados:
-#
-# 34 = corners
-# 45 = ball possession
-# 52 = goals
-# 83 = red cards
-# 84 = yellow cards
-#
-# Para shots, SOT, fouls e xG ainda NÃO vamos inventar IDs.
-# Eles serão reconhecidos pelo código original quando estiverem
-# presentes em uma resposta real da Sportmonks.
-#
+# MAPEAMENTO CONFIRMADO
 # =========================================================
 
 CONFIRMED_TYPE_IDS = {
@@ -67,7 +49,6 @@ CONFIRMED_TYPE_IDS = {
 
 STAT_CODE_MAP = {
     "goals": "goals",
-
     "corners": "corners",
 
     "yellowcards": "yellow_cards",
@@ -130,13 +111,6 @@ def normalize_number(value):
 
 
 def empty_stats():
-    """
-    IMPORTANTE:
-
-    None = dado ausente/não confirmado.
-    0 = zero confirmado pela fonte.
-    """
-
     return {
         "goals": None,
         "xg": None,
@@ -163,6 +137,13 @@ def normalize_stats(stats):
     return result
 
 
+def parse_date(value):
+    return datetime.strptime(
+        value,
+        "%Y-%m-%d"
+    )
+
+
 # =========================================================
 # CLIENTE SPORTMONKS
 # =========================================================
@@ -174,7 +155,6 @@ def sportmonks_request(endpoint, params=None):
         )
 
     query = dict(params or {})
-
     query["api_token"] = SPORTMONKS_API_TOKEN
 
     url = (
@@ -204,7 +184,7 @@ def sportmonks_request(endpoint, params=None):
 
 
 # =========================================================
-# TESTE DA CONEXÃO
+# TESTE DE CONEXÃO
 # =========================================================
 
 def test_sportmonks_connection():
@@ -225,41 +205,15 @@ def test_sportmonks_connection():
 
         data = payload.get("data", [])
 
-        if not isinstance(data, list):
-            return {
-                "connected": True,
-                "authenticated": True,
-                "response_valid": False,
-                "fixtures_received": 0
-            }
-
         return {
             "connected": True,
             "authenticated": True,
-            "response_valid": True,
-            "fixtures_received": len(data)
-        }
-
-    except requests.exceptions.HTTPError as error:
-        status_code = (
-            error.response.status_code
-            if error.response is not None
-            else None
-        )
-
-        return {
-            "connected": False,
-            "authenticated": False,
-            "http_status": status_code,
-            "reason": "sportmonks_http_error"
-        }
-
-    except requests.exceptions.RequestException as error:
-        return {
-            "connected": False,
-            "authenticated": False,
-            "reason": "network_error",
-            "error": str(error)
+            "response_valid":
+                isinstance(data, list),
+            "fixtures_received":
+                len(data)
+                if isinstance(data, list)
+                else 0
         }
 
     except Exception as error:
@@ -272,20 +226,11 @@ def test_sportmonks_connection():
 
 
 # =========================================================
-# FIXTURES SPORTMONKS
+# FIXTURES POR DATA
 # =========================================================
 
 def get_sportmonks_fixtures_by_date(date):
-    try:
-        datetime.strptime(
-            date,
-            "%Y-%m-%d"
-        )
-
-    except (TypeError, ValueError):
-        raise ValueError(
-            "Data deve estar no formato YYYY-MM-DD."
-        )
+    parse_date(date)
 
     payload = sportmonks_request(
         f"fixtures/date/{date}",
@@ -302,14 +247,11 @@ def get_sportmonks_fixtures_by_date(date):
     return data
 
 
+# =========================================================
+# FIXTURE INDIVIDUAL
+# =========================================================
+
 def get_sportmonks_fixture(fixture_id):
-    """
-    Busca uma partida individual.
-
-    statistics.type permite identificar exatamente
-    qual estatística cada type_id representa.
-    """
-
     payload = sportmonks_request(
         f"fixtures/{fixture_id}",
         {
@@ -323,6 +265,45 @@ def get_sportmonks_fixture(fixture_id):
     )
 
     return payload.get("data")
+
+
+# =========================================================
+# HISTÓRICO BRUTO DO TIME
+# =========================================================
+
+def get_team_fixtures_between(
+    team_id,
+    start_date,
+    end_date
+):
+    """
+    Endpoint oficial Sportmonks:
+    fixtures/between/{start}/{end}/{team_id}
+    """
+
+    parse_date(start_date)
+    parse_date(end_date)
+
+    payload = sportmonks_request(
+        (
+            f"fixtures/between/"
+            f"{start_date}/"
+            f"{end_date}/"
+            f"{team_id}"
+        ),
+        {
+            "include": "participants;state",
+            "order": "desc",
+            "per_page": 50
+        }
+    )
+
+    data = payload.get("data", [])
+
+    if not isinstance(data, list):
+        return []
+
+    return data
 
 
 # =========================================================
@@ -353,16 +334,13 @@ def extract_participants(fixture):
         if not isinstance(meta, dict):
             meta = {}
 
-        location = meta.get(
-            "location"
-        )
+        location = meta.get("location")
 
         item = {
             "id": participant.get("id"),
             "name": participant.get("name"),
-            "short_code": participant.get(
-                "short_code"
-            )
+            "short_code":
+                participant.get("short_code")
         }
 
         if location == "home":
@@ -375,7 +353,7 @@ def extract_participants(fixture):
 
 
 # =========================================================
-# NORMALIZAÇÃO BÁSICA DA FIXTURE
+# NORMALIZAÇÃO BÁSICA
 # =========================================================
 
 def normalize_sportmonks_fixture(fixture):
@@ -448,10 +426,6 @@ def normalize_sportmonks_fixture(fixture):
     }
 
 
-# =========================================================
-# FIXTURES POR DATA NORMALIZADAS
-# =========================================================
-
 def fixtures_2627_by_date(date):
     raw_fixtures = (
         get_sportmonks_fixtures_by_date(
@@ -483,7 +457,7 @@ def fixtures_2627_by_date(date):
 
 
 # =========================================================
-# IDENTIFICAÇÃO DE ESTATÍSTICA
+# IDENTIFICAÇÃO DE ESTATÍSTICAS
 # =========================================================
 
 def normalize_stat_code(value):
@@ -500,23 +474,10 @@ def normalize_stat_code(value):
 
 
 def identify_stat_field(stat):
-    """
-    Prioridade:
-
-    1. type_id já confirmado em resposta real.
-    2. code original da Sportmonks.
-    3. developer_name.
-
-    Nunca usa o nome traduzido mostrado pelo navegador
-    como fonte principal.
-    """
-
     if not isinstance(stat, dict):
         return None
 
-    type_id = stat.get(
-        "type_id"
-    )
+    type_id = stat.get("type_id")
 
     if type_id in CONFIRMED_TYPE_IDS:
         return CONFIRMED_TYPE_IDS[
@@ -536,9 +497,7 @@ def identify_stat_field(stat):
     )
 
     if code in STAT_CODE_MAP:
-        return STAT_CODE_MAP[
-            code
-        ]
+        return STAT_CODE_MAP[code]
 
     developer_name = normalize_stat_code(
         stat_type.get(
@@ -555,18 +514,10 @@ def identify_stat_field(stat):
 
 
 # =========================================================
-# PARSER DAS ESTATÍSTICAS DA PARTIDA
+# PARSER DAS ESTATÍSTICAS
 # =========================================================
 
 def parse_fixture_statistics(fixture):
-    """
-    Converte a lista de statistics da Sportmonks
-    para o padrão Football Intelligence.
-
-    Ausente continua None.
-    Value 0 continua 0.
-    """
-
     home_stats = empty_stats()
     away_stats = empty_stats()
 
@@ -631,24 +582,17 @@ def parse_fixture_statistics(fixture):
                 "code": code,
                 "developer_name":
                     developer_name,
-                "location":
-                    location,
-                "value":
-                    value
+                "location": location,
+                "value": value
             })
             continue
 
         recognized.append({
-            "field":
-                field,
-            "type_id":
-                type_id,
-            "code":
-                code,
-            "location":
-                location,
-            "value":
-                value
+            "field": field,
+            "type_id": type_id,
+            "code": code,
+            "location": location,
+            "value": value
         })
 
         if location == "home":
@@ -666,7 +610,7 @@ def parse_fixture_statistics(fixture):
 
 
 # =========================================================
-# PARTIDA NORMALIZADA COMPLETA
+# PARTIDA COMPLETA NORMALIZADA
 # =========================================================
 
 def normalize_fixture_with_stats(fixture):
@@ -689,25 +633,21 @@ def normalize_fixture_with_stats(fixture):
         "away_team"
     )
 
-    home_name = (
-        home_team.get("name")
-        if isinstance(home_team, dict)
-        else None
-    )
-
-    away_name = (
-        away_team.get("name")
-        if isinstance(away_team, dict)
-        else None
-    )
-
     return {
         **basic,
 
         "teams": {
             "home": {
                 "team":
-                    home_name,
+                    (
+                        home_team.get("name")
+                        if isinstance(
+                            home_team,
+                            dict
+                        )
+                        else None
+                    ),
+
                 "team_id":
                     (
                         home_team.get("id")
@@ -717,13 +657,22 @@ def normalize_fixture_with_stats(fixture):
                         )
                         else None
                     ),
+
                 "stats":
                     parsed["home"]
             },
 
             "away": {
                 "team":
-                    away_name,
+                    (
+                        away_team.get("name")
+                        if isinstance(
+                            away_team,
+                            dict
+                        )
+                        else None
+                    ),
+
                 "team_id":
                     (
                         away_team.get("id")
@@ -733,6 +682,7 @@ def normalize_fixture_with_stats(fixture):
                         )
                         else None
                     ),
+
                 "stats":
                     parsed["away"]
             }
@@ -780,34 +730,21 @@ def stats_coverage(stats):
     total = len(STAT_FIELDS)
 
     return {
-        "available":
-            available,
-
-        "total":
-            total,
-
-        "coverage":
-            round(
-                available / total * 100,
-                1
-            )
+        "available": available,
+        "total": total,
+        "coverage": round(
+            available / total * 100,
+            1
+        )
     }
 
 
 def match_coverage(match):
-    if not isinstance(match, dict):
-        return {
-            "home": stats_coverage({}),
-            "away": stats_coverage({})
-        }
-
-    teams = match.get(
-        "teams",
-        {}
+    teams = (
+        match.get("teams", {})
+        if isinstance(match, dict)
+        else {}
     )
-
-    if not isinstance(teams, dict):
-        teams = {}
 
     home = teams.get(
         "home",
@@ -819,43 +756,26 @@ def match_coverage(match):
         {}
     )
 
-    home_stats = (
-        home.get("stats", {})
-        if isinstance(home, dict)
-        else {}
-    )
-
-    away_stats = (
-        away.get("stats", {})
-        if isinstance(away, dict)
-        else {}
-    )
-
     return {
-        "home":
-            stats_coverage(
-                home_stats
-            ),
+        "home": stats_coverage(
+            home.get("stats", {})
+            if isinstance(home, dict)
+            else {}
+        ),
 
-        "away":
-            stats_coverage(
-                away_stats
-            )
+        "away": stats_coverage(
+            away.get("stats", {})
+            if isinstance(away, dict)
+            else {}
+        )
     }
 
 
 # =========================================================
-# VISÃO PRODUZIDO × CEDIDO
+# PRODUZIDO × CEDIDO
 # =========================================================
 
-def team_view(match, team_name):
-    """
-    Transforma uma partida em visão do time:
-
-    produced = estatística do próprio time.
-    conceded = estatística do adversário.
-    """
-
+def team_view(match, team_id):
     if not isinstance(match, dict):
         return None
 
@@ -863,9 +783,6 @@ def team_view(match, team_name):
         "teams",
         {}
     )
-
-    if not isinstance(teams, dict):
-        return None
 
     home = teams.get(
         "home",
@@ -883,20 +800,12 @@ def team_view(match, team_name):
     if not isinstance(away, dict):
         away = {}
 
-    home_name = home.get(
-        "team"
-    )
-
-    away_name = away.get(
-        "team"
-    )
-
-    if team_name == home_name:
+    if home.get("team_id") == team_id:
         own = home
         opponent = away
         venue = "home"
 
-    elif team_name == away_name:
+    elif away.get("team_id") == team_id:
         own = away
         opponent = home
         venue = "away"
@@ -915,10 +824,16 @@ def team_view(match, team_name):
             venue,
 
         "team":
-            team_name,
+            own.get("team"),
+
+        "team_id":
+            team_id,
 
         "opponent":
             opponent.get("team"),
+
+        "opponent_id":
+            opponent.get("team_id"),
 
         "produced":
             normalize_stats(
@@ -939,61 +854,7 @@ def team_view(match, team_name):
 
 
 # =========================================================
-# HISTÓRICO LOCAL A PARTIR DE PARTIDAS JÁ NORMALIZADAS
-# =========================================================
-
-def get_team_history(
-    matches,
-    team_name,
-    limit=5,
-    venue="all"
-):
-    if limit not in [5, 10]:
-        raise ValueError(
-            "limit deve ser 5 ou 10"
-        )
-
-    if venue not in [
-        "all",
-        "home",
-        "away"
-    ]:
-        raise ValueError(
-            "venue deve ser all, home ou away"
-        )
-
-    history = []
-
-    for match in matches:
-        view = team_view(
-            match,
-            team_name
-        )
-
-        if not view:
-            continue
-
-        if (
-            venue != "all"
-            and view.get("venue") != venue
-        ):
-            continue
-
-        history.append(
-            view
-        )
-
-    history.sort(
-        key=lambda item:
-            item.get("date") or "",
-        reverse=True
-    )
-
-    return history[:limit]
-
-
-# =========================================================
-# MÉDIAS
+# VALORES / MÉDIAS / HIT RATE
 # =========================================================
 
 def valid_values(
@@ -1017,9 +878,7 @@ def valid_values(
         )
 
         if is_number(value):
-            values.append(
-                value
-            )
+            values.append(value)
 
     return values
 
@@ -1070,10 +929,6 @@ def history_averages(history):
     return result
 
 
-# =========================================================
-# HIT RATE REAL
-# =========================================================
-
 def calculate_hit_rate(
     history,
     side,
@@ -1101,20 +956,13 @@ def calculate_hit_rate(
     )
 
     return {
-        "hits":
-            hits,
-
-        "sample":
-            len(values),
-
-        "rate":
-            round(
-                hits / len(values) * 100,
-                1
-            ),
-
-        "line":
-            line
+        "hits": hits,
+        "sample": len(values),
+        "rate": round(
+            hits / len(values) * 100,
+            1
+        ),
+        "line": line
     }
 
 
@@ -1126,11 +974,7 @@ def sample_quality(
     actual,
     requested
 ):
-    if (
-        not isinstance(actual, int)
-        or not isinstance(requested, int)
-        or requested <= 0
-    ):
+    if requested <= 0:
         return {
             "valid": False,
             "coverage": None,
@@ -1149,33 +993,273 @@ def sample_quality(
     )
 
     return {
-        "valid":
-            valid,
-
-        "matches":
-            actual,
-
-        "requested":
-            requested,
-
-        "coverage":
-            round(
-                coverage_ratio * 100,
-                1
-            ),
-
-        "status":
-            (
-                "valid"
-                if valid
-                else "insufficient_data"
-            )
+        "valid": valid,
+        "matches": actual,
+        "requested": requested,
+        "coverage": round(
+            coverage_ratio * 100,
+            1
+        ),
+        "status": (
+            "valid"
+            if valid
+            else "insufficient_data"
+        )
     }
 
 
 # =========================================================
-# RESUMO DO TIME
+# HISTÓRICO REAL 2026/27
 # =========================================================
+
+def analyze_team_history_2627(
+    team_id,
+    season_id,
+    limit=5,
+    venue="all",
+    before_date=None
+):
+    if limit not in [5, 10]:
+        raise ValueError(
+            "limit deve ser 5 ou 10"
+        )
+
+    if venue not in [
+        "all",
+        "home",
+        "away"
+    ]:
+        raise ValueError(
+            "venue deve ser all, home ou away"
+        )
+
+    if before_date is None:
+        before_dt = datetime.utcnow()
+
+    else:
+        before_dt = parse_date(
+            before_date
+        )
+
+    # Busca uma janela ampla para conseguir
+    # formar últimos 5/10 e Casa/Fora.
+    start_dt = (
+        before_dt - timedelta(days=365)
+    )
+
+    start_date = (
+        start_dt.strftime("%Y-%m-%d")
+    )
+
+    # IMPORTANTE:
+    # usamos o dia anterior para impedir que a
+    # própria partida analisada entre na amostra.
+    end_dt = (
+        before_dt - timedelta(days=1)
+    )
+
+    end_date = (
+        end_dt.strftime("%Y-%m-%d")
+    )
+
+    raw_fixtures = get_team_fixtures_between(
+        team_id=team_id,
+        start_date=start_date,
+        end_date=end_date
+    )
+
+    candidates = []
+
+    for raw in raw_fixtures:
+        if not isinstance(raw, dict):
+            continue
+
+        # Mesma temporada somente.
+        if raw.get("season_id") != season_id:
+            continue
+
+        state = raw.get(
+            "state",
+            {}
+        )
+
+        if not isinstance(state, dict):
+            state = {}
+
+        state_code = (
+            state.get("developer_name")
+            or state.get("short_name")
+            or state.get("state")
+        )
+
+        # Somente jogos encerrados.
+        if state_code != "FT":
+            continue
+
+        starting_at = raw.get(
+            "starting_at"
+        )
+
+        if not starting_at:
+            continue
+
+        candidates.append(raw)
+
+    candidates.sort(
+        key=lambda item:
+            item.get("starting_at") or "",
+        reverse=True
+    )
+
+    history = []
+
+    # Para Casa/Fora podemos precisar olhar
+    # mais partidas até conseguir 5 ou 10 válidas.
+    for candidate in candidates:
+        fixture_id = candidate.get("id")
+
+        if not fixture_id:
+            continue
+
+        complete = get_sportmonks_fixture(
+            fixture_id
+        )
+
+        if not complete:
+            continue
+
+        normalized = (
+            normalize_fixture_with_stats(
+                complete
+            )
+        )
+
+        if not normalized:
+            continue
+
+        view = team_view(
+            normalized,
+            team_id
+        )
+
+        if not view:
+            continue
+
+        if (
+            venue != "all"
+            and view.get("venue") != venue
+        ):
+            continue
+
+        history.append(view)
+
+        if len(history) >= limit:
+            break
+
+    return {
+        "season": SEASON,
+        "season_id": season_id,
+        "team_id": team_id,
+        "limit": limit,
+        "venue": venue,
+        "before_date": (
+            before_dt.strftime(
+                "%Y-%m-%d"
+            )
+        ),
+        "source": "Sportmonks",
+
+        "matches_analyzed":
+            len(history),
+
+        "sample_quality":
+            sample_quality(
+                len(history),
+                limit
+            ),
+
+        "averages":
+            history_averages(
+                history
+            ),
+
+        "matches":
+            history,
+
+        "integrity": {
+            "future_matches_used":
+                False,
+            "missing_values_invented":
+                False,
+            "hit_rates_from_real_matches_only":
+                True
+        }
+    }
+
+
+# =========================================================
+# RESUMO LOCAL
+# =========================================================
+
+def get_team_history(
+    matches,
+    team_name,
+    limit=5,
+    venue="all"
+):
+    history = []
+
+    for match in matches:
+        teams = match.get(
+            "teams",
+            {}
+        )
+
+        home = teams.get(
+            "home",
+            {}
+        )
+
+        away = teams.get(
+            "away",
+            {}
+        )
+
+        team_id = None
+
+        if home.get("team") == team_name:
+            team_id = home.get("team_id")
+
+        elif away.get("team") == team_name:
+            team_id = away.get("team_id")
+
+        if team_id is None:
+            continue
+
+        view = team_view(
+            match,
+            team_id
+        )
+
+        if not view:
+            continue
+
+        if (
+            venue != "all"
+            and view.get("venue") != venue
+        ):
+            continue
+
+        history.append(view)
+
+    history.sort(
+        key=lambda item:
+            item.get("date") or "",
+        reverse=True
+    )
+
+    return history[:limit]
+
 
 def build_team_summary(
     history,
@@ -1202,7 +1286,7 @@ def build_team_summary(
 
 
 # =========================================================
-# STATUS 2026/27
+# STATUS
 # =========================================================
 
 def collector_2627_status():
@@ -1219,14 +1303,9 @@ def collector_2627_status():
             else "source_not_connected"
         ),
 
-        "season":
-            SEASON,
-
-        "mode":
-            "2026_27",
-
-        "data_source":
-            "Sportmonks",
+        "season": SEASON,
+        "mode": "2026_27",
+        "data_source": "Sportmonks",
 
         "data_source_connected":
             connection.get(
@@ -1259,25 +1338,20 @@ def collector_2627_status():
         "integrity": {
             "missing_values_invented":
                 False,
-
             "zero_is_missing":
                 False,
-
             "null_is_missing":
                 True,
-
             "minimum_valid_games":
                 MIN_VALID_SAMPLE,
-
             "minimum_coverage":
                 MIN_COVERAGE,
-
             "integrity_note":
                 INTEGRITY_NOTE_2627
         },
 
         "next_step": (
-            "Expor o endpoint normalizado da partida "
-            "e validar o parser Sportmonks."
+            "Expor histórico 2026/27 por time "
+            "no app.py."
         )
     }
