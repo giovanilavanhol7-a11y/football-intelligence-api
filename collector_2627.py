@@ -16,8 +16,7 @@ SEASON = "2026/27"
 MIN_VALID_SAMPLE = 4
 MIN_COVERAGE = 0.80
 
-# Por enquanto, o motor de análise trabalha SOMENTE
-# com estatísticas confirmadas no nosso feed atual.
+# Estatísticas que realmente entram na análise agora.
 ACTIVE_STATS = [
     "goals",
     "corners",
@@ -25,8 +24,7 @@ ACTIVE_STATS = [
     "red_cards"
 ]
 
-# Mantemos os demais campos no formato da API,
-# mas eles NÃO participam do motor enquanto não houver fonte.
+# Estrutura reservada para expansão futura.
 STAT_FIELDS = [
     "goals",
     "xg",
@@ -47,7 +45,7 @@ INTEGRITY_NOTE_2627 = (
 
 
 # =========================================================
-# LINHAS DE MERCADO ATIVAS
+# LINHAS
 # =========================================================
 
 MARKET_LINES = {
@@ -83,7 +81,7 @@ MARKET_LINES = {
 
 
 # =========================================================
-# MAPEAMENTO SPORTMONKS CONFIRMADO
+# MAPEAMENTO SPORTMONKS
 # =========================================================
 
 CONFIRMED_TYPE_IDS = {
@@ -104,8 +102,7 @@ STAT_CODE_MAP = {
     "redcards": "red_cards",
     "red-cards": "red_cards",
 
-    # Permanecem preparados para o futuro,
-    # mas não entram no motor ativo.
+    # Preparado para futuras fontes/planos.
     "shots-total": "shots",
     "total-shots": "shots",
     "shots": "shots",
@@ -830,36 +827,6 @@ def stats_coverage(stats):
     }
 
 
-def active_stats_coverage(stats):
-    if not isinstance(stats, dict):
-        stats = {}
-
-    available = sum(
-        1
-        for field in ACTIVE_STATS
-        if is_number(
-            stats.get(field)
-        )
-    )
-
-    total = len(
-        ACTIVE_STATS
-    )
-
-    return {
-        "available":
-            available,
-
-        "total":
-            total,
-
-        "coverage": round(
-            available / total * 100,
-            1
-        )
-    }
-
-
 def match_coverage(match):
     teams = (
         match.get("teams", {})
@@ -907,7 +874,7 @@ def match_coverage(match):
 
 
 # =========================================================
-# VISÃO DO TIME — PRODUZIDO × CEDIDO
+# VISÃO DO TIME
 # =========================================================
 
 def team_view(
@@ -992,7 +959,7 @@ def team_view(
 
 
 # =========================================================
-# VALORES
+# VALORES / MÉDIAS
 # =========================================================
 
 def valid_values(
@@ -1025,10 +992,6 @@ def valid_values(
 
     return values
 
-
-# =========================================================
-# MÉDIAS
-# =========================================================
 
 def history_averages(history):
     result = {
@@ -1069,7 +1032,7 @@ def history_averages(history):
 
 
 # =========================================================
-# HIT RATE REAL
+# FREQUÊNCIAS REAIS
 # =========================================================
 
 def calculate_hit_rate(
@@ -1161,7 +1124,7 @@ def build_frequencies(history):
 
 
 # =========================================================
-# QUALIDADE DA AMOSTRA
+# QUALIDADE GERAL DA AMOSTRA
 # =========================================================
 
 def sample_quality(
@@ -1172,6 +1135,12 @@ def sample_quality(
         return {
             "valid":
                 False,
+
+            "matches":
+                actual,
+
+            "requested":
+                requested,
 
             "coverage":
                 None,
@@ -1214,7 +1183,119 @@ def sample_quality(
 
 
 # =========================================================
-# BUSCA HISTÓRICA 2026/27
+# QUALIDADE POR ESTATÍSTICA
+# =========================================================
+
+def metric_side_quality(
+    history,
+    side,
+    field,
+    requested
+):
+    values = valid_values(
+        history,
+        side,
+        field
+    )
+
+    actual = len(values)
+
+    coverage_ratio = (
+        actual / requested
+        if requested > 0
+        else 0
+    )
+
+    valid = (
+        actual >= MIN_VALID_SAMPLE
+        and
+        coverage_ratio >= MIN_COVERAGE
+    )
+
+    return {
+        "valid":
+            valid,
+
+        "sample":
+            actual,
+
+        "requested":
+            requested,
+
+        "coverage": round(
+            coverage_ratio * 100,
+            1
+        ),
+
+        "status": (
+            "valid"
+            if valid
+            else "insufficient_data"
+        )
+    }
+
+
+def metric_quality(
+    history,
+    field,
+    requested
+):
+    produced = metric_side_quality(
+        history,
+        "produced",
+        field,
+        requested
+    )
+
+    conceded = metric_side_quality(
+        history,
+        "conceded",
+        field,
+        requested
+    )
+
+    valid = (
+        produced.get("valid") is True
+        and
+        conceded.get("valid") is True
+    )
+
+    return {
+        "valid":
+            valid,
+
+        "produced":
+            produced,
+
+        "conceded":
+            conceded,
+
+        "status": (
+            "valid"
+            if valid
+            else "insufficient_data"
+        )
+    }
+
+
+def build_metric_quality(
+    history,
+    requested
+):
+    result = {}
+
+    for field in ACTIVE_STATS:
+        result[field] = metric_quality(
+            history,
+            field,
+            requested
+        )
+
+    return result
+
+
+# =========================================================
+# HISTÓRICO 2026/27
 # =========================================================
 
 def collect_team_history_2627(
@@ -1438,6 +1519,12 @@ def analyze_team_history_2627(
                 limit
             ),
 
+        "metric_quality":
+            build_metric_quality(
+                history,
+                limit
+            ),
+
         "averages":
             history_averages(
                 history
@@ -1471,12 +1558,12 @@ def analyze_team_history_2627(
 
 
 # =========================================================
-# CRUZAMENTO PRODUZIDO × CEDIDO
+# PRODUZIDO × CEDIDO
 # =========================================================
 
 def cross_metric(
     produced_history,
-    conceded_history,
+    opponent_history,
     field
 ):
     produced_values = valid_values(
@@ -1486,7 +1573,7 @@ def cross_metric(
     )
 
     conceded_values = valid_values(
-        conceded_history,
+        opponent_history,
         "conceded",
         field
     )
@@ -1499,14 +1586,14 @@ def cross_metric(
         conceded_values
     )
 
-    projection = None
+    cross_average = None
 
     if (
         produced_average is not None
         and
         conceded_average is not None
     ):
-        projection = round(
+        cross_average = round(
             (
                 produced_average
                 + conceded_average
@@ -1528,7 +1615,7 @@ def cross_metric(
             len(conceded_values),
 
         "cross_average":
-            projection,
+            cross_average,
 
         "is_hit_rate":
             False
@@ -1552,6 +1639,249 @@ def build_cross(
 
 
 # =========================================================
+# VALIDAÇÃO DO CRUZAMENTO POR ESTATÍSTICA
+# =========================================================
+
+def cross_metric_quality(
+    team_history,
+    opponent_history,
+    field,
+    requested
+):
+    produced_values = valid_values(
+        team_history,
+        "produced",
+        field
+    )
+
+    opponent_conceded_values = (
+        valid_values(
+            opponent_history,
+            "conceded",
+            field
+        )
+    )
+
+    produced_sample = len(
+        produced_values
+    )
+
+    opponent_sample = len(
+        opponent_conceded_values
+    )
+
+    produced_coverage = (
+        produced_sample / requested
+        if requested > 0
+        else 0
+    )
+
+    opponent_coverage = (
+        opponent_sample / requested
+        if requested > 0
+        else 0
+    )
+
+    produced_valid = (
+        produced_sample >= MIN_VALID_SAMPLE
+        and
+        produced_coverage >= MIN_COVERAGE
+    )
+
+    opponent_valid = (
+        opponent_sample >= MIN_VALID_SAMPLE
+        and
+        opponent_coverage >= MIN_COVERAGE
+    )
+
+    valid = (
+        produced_valid
+        and
+        opponent_valid
+    )
+
+    return {
+        "valid":
+            valid,
+
+        "team_produced": {
+            "valid":
+                produced_valid,
+
+            "sample":
+                produced_sample,
+
+            "requested":
+                requested,
+
+            "coverage": round(
+                produced_coverage * 100,
+                1
+            )
+        },
+
+        "opponent_conceded": {
+            "valid":
+                opponent_valid,
+
+            "sample":
+                opponent_sample,
+
+            "requested":
+                requested,
+
+            "coverage": round(
+                opponent_coverage * 100,
+                1
+            )
+        },
+
+        "status": (
+            "valid"
+            if valid
+            else "insufficient_data"
+        )
+    }
+
+
+def build_cross_quality(
+    team_history,
+    opponent_history,
+    requested
+):
+    result = {}
+
+    for field in ACTIVE_STATS:
+        result[field] = (
+            cross_metric_quality(
+                team_history,
+                opponent_history,
+                field,
+                requested
+            )
+        )
+
+    return result
+
+
+# =========================================================
+# EVIDÊNCIA POR MERCADO
+# =========================================================
+
+def build_market_evidence(
+    home_general,
+    away_general,
+    home_home,
+    away_away,
+    requested
+):
+    result = {}
+
+    for field in ACTIVE_STATS:
+        home_general_quality = (
+            cross_metric_quality(
+                home_general,
+                away_general,
+                field,
+                requested
+            )
+        )
+
+        away_general_quality = (
+            cross_metric_quality(
+                away_general,
+                home_general,
+                field,
+                requested
+            )
+        )
+
+        home_venue_quality = (
+            cross_metric_quality(
+                home_home,
+                away_away,
+                field,
+                requested
+            )
+        )
+
+        away_venue_quality = (
+            cross_metric_quality(
+                away_away,
+                home_home,
+                field,
+                requested
+            )
+        )
+
+        general_valid = (
+            home_general_quality[
+                "valid"
+            ]
+            and
+            away_general_quality[
+                "valid"
+            ]
+        )
+
+        venue_valid = (
+            home_venue_quality[
+                "valid"
+            ]
+            and
+            away_venue_quality[
+                "valid"
+            ]
+        )
+
+        if (
+            general_valid
+            and
+            venue_valid
+        ):
+            evidence = "complete"
+
+        elif general_valid:
+            evidence = "partial"
+
+        else:
+            evidence = "insufficient"
+
+        result[field] = {
+            "evidence":
+                evidence,
+
+            "eligible": (
+                evidence
+                in [
+                    "complete",
+                    "partial"
+                ]
+            ),
+
+            "general_valid":
+                general_valid,
+
+            "home_away_valid":
+                venue_valid,
+
+            "home_general":
+                home_general_quality,
+
+            "away_general":
+                away_general_quality,
+
+            "home_at_home":
+                home_venue_quality,
+
+            "away_at_away":
+                away_venue_quality
+        }
+
+    return result
+
+
+# =========================================================
 # PRÉ-JOGO 2026/27
 # =========================================================
 
@@ -1568,7 +1898,7 @@ def analyze_prematch_2627(
         )
 
     # ---------------------------------------------
-    # ÚLTIMOS JOGOS GERAIS
+    # GERAL
     # ---------------------------------------------
 
     home_general = (
@@ -1616,10 +1946,10 @@ def analyze_prematch_2627(
     )
 
     # ---------------------------------------------
-    # QUALIDADE
+    # QUALIDADE GERAL
     # ---------------------------------------------
 
-    quality = {
+    sample_quality_result = {
         "home_general":
             sample_quality(
                 len(home_general),
@@ -1645,41 +1975,138 @@ def analyze_prematch_2627(
             )
     }
 
-    all_samples_valid = all(
-        item.get("valid") is True
-        for item in quality.values()
-    )
-
     # ---------------------------------------------
-    # CRUZAMENTOS
+    # QUALIDADE POR ESTATÍSTICA
     # ---------------------------------------------
 
-    general_cross = {
-        "home":
-            build_cross(
+    metric_quality_result = {
+        "home_general":
+            build_metric_quality(
                 home_general,
-                away_general
+                limit
             ),
 
-        "away":
-            build_cross(
+        "away_general":
+            build_metric_quality(
                 away_general,
-                home_general
+                limit
+            ),
+
+        "home_at_home":
+            build_metric_quality(
+                home_home,
+                limit
+            ),
+
+        "away_at_away":
+            build_metric_quality(
+                away_away,
+                limit
             )
     }
 
-    venue_cross = {
-        "home":
-            build_cross(
-                home_home,
-                away_away
-            ),
+    # ---------------------------------------------
+    # EVIDÊNCIA POR MERCADO
+    # ---------------------------------------------
 
-        "away":
-            build_cross(
-                away_away,
-                home_home
-            )
+    market_evidence = (
+        build_market_evidence(
+            home_general,
+            away_general,
+            home_home,
+            away_away,
+            limit
+        )
+    )
+
+    eligible_stats = [
+        field
+        for field, data
+        in market_evidence.items()
+        if data.get(
+            "eligible"
+        ) is True
+    ]
+
+    blocked_stats = [
+        field
+        for field, data
+        in market_evidence.items()
+        if data.get(
+            "eligible"
+        ) is not True
+    ]
+
+    # ---------------------------------------------
+    # PRODUZIDO × CEDIDO
+    # ---------------------------------------------
+
+    produced_x_conceded = {
+        "general": {
+            "home":
+                build_cross(
+                    home_general,
+                    away_general
+                ),
+
+            "away":
+                build_cross(
+                    away_general,
+                    home_general
+                )
+        },
+
+        "home_away": {
+            "home":
+                build_cross(
+                    home_home,
+                    away_away
+                ),
+
+            "away":
+                build_cross(
+                    away_away,
+                    home_home
+                )
+        }
+    }
+
+    # ---------------------------------------------
+    # QUALIDADE DOS CRUZAMENTOS
+    # ---------------------------------------------
+
+    cross_quality = {
+        "general": {
+            "home":
+                build_cross_quality(
+                    home_general,
+                    away_general,
+                    limit
+                ),
+
+            "away":
+                build_cross_quality(
+                    away_general,
+                    home_general,
+                    limit
+                )
+        },
+
+        "home_away": {
+            "home":
+                build_cross_quality(
+                    home_home,
+                    away_away,
+                    limit
+                ),
+
+            "away":
+                build_cross_quality(
+                    away_away,
+                    home_home,
+                    limit
+                )
+        }
     }
 
     return {
@@ -1710,10 +2137,19 @@ def analyze_prematch_2627(
         },
 
         "sample_quality":
-            quality,
+            sample_quality_result,
 
-        "all_samples_valid":
-            all_samples_valid,
+        "metric_quality":
+            metric_quality_result,
+
+        "market_evidence":
+            market_evidence,
+
+        "eligible_stats":
+            eligible_stats,
+
+        "blocked_stats":
+            blocked_stats,
 
         "home": {
             "general": {
@@ -1779,23 +2215,23 @@ def analyze_prematch_2627(
             }
         },
 
-        "produced_x_conceded": {
-            "general":
-                general_cross,
+        "produced_x_conceded":
+            produced_x_conceded,
 
-            "home_away":
-                venue_cross
-        },
+        "cross_quality":
+            cross_quality,
 
         "recommendation_gate": {
-            "eligible":
-                all_samples_valid,
+            "eligible_stats":
+                eligible_stats,
 
-            "reason": (
-                "samples_valid"
-                if all_samples_valid
-                else "insufficient_sample"
-            )
+            "blocked_stats":
+                blocked_stats,
+
+            "has_eligible_market":
+                len(
+                    eligible_stats
+                ) > 0
         },
 
         "integrity": {
@@ -1821,7 +2257,7 @@ def analyze_prematch_2627(
 
 
 # =========================================================
-# COMPATIBILIDADE LOCAL
+# COMPATIBILIDADE
 # =========================================================
 
 def get_team_history(
@@ -1910,6 +2346,12 @@ def build_team_summary(
                 requested
             ),
 
+        "metric_quality":
+            build_metric_quality(
+                history,
+                requested
+            ),
+
         "averages":
             history_averages(
                 history
@@ -1978,10 +2420,17 @@ def collector_2627_status():
         ],
 
         "confirmed_sportmonks_type_ids": {
-            "34": "corners",
-            "52": "goals",
-            "83": "red_cards",
-            "84": "yellow_cards"
+            "34":
+                "corners",
+
+            "52":
+                "goals",
+
+            "83":
+                "red_cards",
+
+            "84":
+                "yellow_cards"
         },
 
         "connection_test":
@@ -2008,6 +2457,7 @@ def collector_2627_status():
         },
 
         "next_step": (
-            "Expor o pré-jogo 2026/27 no app.py."
+            "Validar market_evidence por estatística "
+            "antes do Confidence Score."
         )
     }
