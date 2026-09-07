@@ -16,6 +16,8 @@ SEASON = "2026/27"
 MIN_VALID_SAMPLE = 4
 MIN_COVERAGE = 0.80
 
+MIN_RECOMMENDATION_SCORE = 10.0
+
 ACTIVE_STATS = [
     "goals",
     "corners",
@@ -36,9 +38,12 @@ STAT_FIELDS = [
 
 INTEGRITY_NOTE_2627 = (
     "Confidence Score mede força da evidência e não probabilidade calibrada. "
-    "X/20 é referência ampla. Frequências X/5/X/10 não confirmadas não foram "
-    "inventadas. Linhas de AMBAS baseadas apenas em médias recebem penalização "
-    "até fecharmos Produziu × Cedeu jogo a jogo."
+    "Frequências são calculadas somente a partir de partidas com o dado "
+    "confirmado jogo a jogo. Dado ausente permanece null e nunca é convertido "
+    "em zero. Médias de Produzido × Cedido são usadas apenas como apoio e não "
+    "são tratadas como taxa de acerto. Recortes Casa × Fora com amostra "
+    "insuficiente não aumentam o Confidence Score. Somente mercados com "
+    "Confidence Score mínimo de 10/20 podem entrar no ranking de oportunidades."
 )
 
 
@@ -1826,9 +1831,9 @@ def score_line_opportunity(
     line,
     requested
 ):
-    # ---------------------------------------------
-    # GERAL — PRODUZIDO
-    # ---------------------------------------------
+    # =====================================================
+    # FREQUÊNCIA GERAL — TIME PRODUZIU
+    # =====================================================
 
     general_produced = (
         frequency_for_line(
@@ -1839,9 +1844,9 @@ def score_line_opportunity(
         )
     )
 
-    # ---------------------------------------------
-    # GERAL — ADVERSÁRIO CEDEU
-    # ---------------------------------------------
+    # =====================================================
+    # FREQUÊNCIA GERAL — ADVERSÁRIO CEDEU
+    # =====================================================
 
     general_conceded = (
         frequency_for_line(
@@ -1851,6 +1856,10 @@ def score_line_opportunity(
             line
         )
     )
+
+    # =====================================================
+    # QUALIDADE GERAL
+    # =====================================================
 
     general_quality = (
         cross_metric_quality(
@@ -1885,9 +1894,9 @@ def score_line_opportunity(
             "reason": "frequency_unavailable"
         }
 
-    # ---------------------------------------------
+    # =====================================================
     # CASA × FORA
-    # ---------------------------------------------
+    # =====================================================
 
     venue_produced = (
         frequency_for_line(
@@ -1916,9 +1925,9 @@ def score_line_opportunity(
         )
     )
 
-    # ---------------------------------------------
-    # MÉDIAS
-    # ---------------------------------------------
+    # =====================================================
+    # MÉDIAS PRODUZIDO × CEDIDO
+    # =====================================================
 
     general_cross = cross_metric(
         team_history,
@@ -1932,28 +1941,34 @@ def score_line_opportunity(
         field
     )
 
-    # ---------------------------------------------
-    # SCORE — MÁXIMO 20
+    # =====================================================
+    # CONFIDENCE SCORE
     #
-    # 8 pts: frequências gerais
-    # 4 pts: força da amostra geral
-    # 4 pts: Casa × Fora
-    # 4 pts: margem da média cruzada
-    # ---------------------------------------------
+    # TOTAL MÁXIMO = 20
+    #
+    # 4 pontos = frequência produzida
+    # 4 pontos = frequência cedida pelo adversário
+    # 4 pontos = qualidade/cobertura geral
+    # 4 pontos = Casa × Fora válido
+    # 4 pontos = margem da média cruzada
+    #
+    # IMPORTANTE:
+    # Casa × Fora insuficiente = ZERO bônus.
+    # Média cruzada NÃO é probabilidade.
+    # =====================================================
 
-    score = 0.0
-
-    # Frequência produzida geral: 0–4
-    score += (
+    produced_component = (
         produced_rate / 100
     ) * 4
 
-    # Frequência cedida pelo adversário: 0–4
-    score += (
+    conceded_component = (
         conceded_rate / 100
     ) * 4
 
-    # Qualidade da amostra geral: 0–4
+    # =====================================================
+    # COBERTURA GERAL
+    # =====================================================
+
     produced_coverage = (
         general_quality[
             "team_produced"
@@ -1971,13 +1986,15 @@ def score_line_opportunity(
         + conceded_coverage
     ) / 2
 
-    score += (
+    coverage_component = (
         average_coverage / 100
     ) * 4
 
-    # Casa × Fora: máximo 4.
-    # Só ganha peso integral quando a amostra do recorte é válida.
-    venue_score = 0.0
+    # =====================================================
+    # COMPONENTE CASA × FORA
+    # =====================================================
+
+    venue_component = 0.0
 
     venue_produced_rate = (
         venue_produced.get("rate")
@@ -1999,23 +2016,21 @@ def score_line_opportunity(
             + venue_conceded_rate
         ) / 2
 
-        venue_score = (
+        venue_component = (
             venue_rate / 100
         ) * 4
 
-    score += venue_score
+    # =====================================================
+    # MARGEM DA MÉDIA CRUZADA
+    # =====================================================
 
-    # Margem da média cruzada: máximo 4.
-    #
-    # Não é frequência.
-    # Apenas mede se a média cruzada está acima da linha.
     general_cross_average = (
         general_cross.get(
             "cross_average"
         )
     )
 
-    margin_score = 0.0
+    margin_component = 0.0
 
     if general_cross_average is not None:
         margin = (
@@ -2024,36 +2039,55 @@ def score_line_opportunity(
         )
 
         if margin >= 2:
-            margin_score = 4.0
+            margin_component = 4.0
 
         elif margin >= 1:
-            margin_score = 3.0
+            margin_component = 3.0
 
         elif margin >= 0.5:
-            margin_score = 2.0
+            margin_component = 2.0
 
         elif margin > 0:
-            margin_score = 1.0
+            margin_component = 1.0
 
-    score += margin_score
+    # =====================================================
+    # SCORE FINAL
+    # =====================================================
 
-    # O modelo acima possui potencial bruto de 24 pontos:
-    # 8 frequência + 4 cobertura + 4 venue + 4 margem.
-    #
-    # Normalizamos para nossa referência de 20.
-    raw_score = score
+    raw_score = (
+        produced_component
+        + conceded_component
+        + coverage_component
+        + venue_component
+        + margin_component
+    )
 
-    normalized_score = round(
+    confidence_score = round(
         min(
-            20,
-            raw_score / 24 * 20
+            20.0,
+            max(
+                0.0,
+                raw_score
+            )
         ),
         1
+    )
+
+    label = confidence_label(
+        confidence_score
+    )
+
+    recommendation_eligible = (
+        confidence_score
+        >= MIN_RECOMMENDATION_SCORE
     )
 
     return {
         "eligible":
             True,
+
+        "recommendation_eligible":
+            recommendation_eligible,
 
         "field":
             field,
@@ -2065,12 +2099,10 @@ def score_line_opportunity(
             f"{field}_over_{line}",
 
         "confidence_score":
-            normalized_score,
+            confidence_score,
 
         "confidence_label":
-            confidence_label(
-                normalized_score
-            ),
+            label,
 
         "evidence": {
             "general": {
@@ -2107,7 +2139,37 @@ def score_line_opportunity(
         },
 
         "score_components": {
-            "raw_score_before_normalization":
+            "team_produced_frequency":
+                round(
+                    produced_component,
+                    2
+                ),
+
+            "opponent_conceded_frequency":
+                round(
+                    conceded_component,
+                    2
+                ),
+
+            "general_sample_quality":
+                round(
+                    coverage_component,
+                    2
+                ),
+
+            "home_away":
+                round(
+                    venue_component,
+                    2
+                ),
+
+            "cross_average_margin":
+                round(
+                    margin_component,
+                    2
+                ),
+
+            "total_before_cap":
                 round(
                     raw_score,
                     2
@@ -2126,10 +2188,7 @@ def score_line_opportunity(
                 ),
 
             "venue_component_used":
-                venue_quality["valid"],
-
-            "margin_component":
-                margin_score
+                venue_quality["valid"]
         },
 
         "integrity": {
@@ -2140,7 +2199,13 @@ def score_line_opportunity(
                 False,
 
             "small_venue_sample_promoted":
-                False
+                False,
+
+            "real_match_frequencies_only":
+                True,
+
+            "minimum_recommendation_score":
+                MIN_RECOMMENDATION_SCORE
         }
     }
 
@@ -2159,7 +2224,9 @@ def build_opportunity_ranking(
     market_evidence,
     requested
 ):
-    opportunities = []
+    evaluated = []
+    recommendations = []
+    discarded_low_confidence = []
     blocked = []
 
     team_configs = [
@@ -2183,39 +2250,22 @@ def build_opportunity_ranking(
 
     for config in team_configs:
         for field in ACTIVE_STATS:
-            field_evidence = (
-                market_evidence.get(
-                    field,
-                    {}
-                )
-            )
 
-            if not field_evidence.get(
-                "eligible",
-                False
-            ):
-                for line in MARKET_LINES.get(
-                    field,
-                    []
-                ):
-                    blocked.append({
-                        "side":
-                            config["side"],
-
-                        "team_id":
-                            config["team_id"],
-
-                        "field":
-                            field,
-
-                        "line":
-                            line,
-
-                        "reason":
-                            "metric_sample_insufficient"
-                    })
-
-                continue
+            # -------------------------------------------------
+            # IMPORTANTE:
+            #
+            # Não usamos mais o "eligible" global da estatística
+            # para bloquear os dois times juntos.
+            #
+            # Cada direção é avaliada individualmente:
+            #
+            # TIME PRODUZIU
+            # ×
+            # ADVERSÁRIO CEDEU
+            #
+            # Isso evita bloquear uma oportunidade válida de um
+            # time só porque a direção oposta não possui amostra.
+            # -------------------------------------------------
 
             for line in MARKET_LINES.get(
                 field,
@@ -2263,6 +2313,9 @@ def build_opportunity_ranking(
                         "line":
                             line,
 
+                        "market":
+                            f"{field}_over_{line}",
+
                         "reason":
                             result.get(
                                 "reason"
@@ -2279,53 +2332,127 @@ def build_opportunity_ranking(
                     config["team_id"]
                 )
 
-                opportunities.append(
+                evaluated.append(
                     result
                 )
 
-    opportunities.sort(
-        key=lambda item:
-            (
-                item.get(
+                if result.get(
                     "confidence_score",
                     0
-                ),
-                item.get(
-                    "evidence",
-                    {}
-                )
-                .get(
-                    "general",
-                    {}
-                )
-                .get(
-                    "team_produced",
-                    {}
-                )
-                .get(
-                    "rate",
-                    0
-                )
-            ),
+                ) >= MIN_RECOMMENDATION_SCORE:
+                    recommendations.append(
+                        result
+                    )
+
+                else:
+                    discarded = dict(
+                        result
+                    )
+
+                    discarded[
+                        "discard_reason"
+                    ] = (
+                        "confidence_score_below_10"
+                    )
+
+                    discarded_low_confidence.append(
+                        discarded
+                    )
+
+    # =====================================================
+    # ORDENAÇÃO
+    # =====================================================
+
+    def ranking_key(item):
+        score = item.get(
+            "confidence_score",
+            0
+        )
+
+        evidence = item.get(
+            "evidence",
+            {}
+        )
+
+        general = evidence.get(
+            "general",
+            {}
+        )
+
+        produced = general.get(
+            "team_produced",
+            {}
+        )
+
+        conceded = general.get(
+            "opponent_conceded",
+            {}
+        )
+
+        produced_rate = (
+            produced.get("rate")
+            or 0
+        )
+
+        conceded_rate = (
+            conceded.get("rate")
+            or 0
+        )
+
+        combined_rate = (
+            produced_rate
+            + conceded_rate
+        ) / 2
+
+        return (
+            score,
+            combined_rate,
+            produced_rate,
+            conceded_rate
+        )
+
+    evaluated.sort(
+        key=ranking_key,
         reverse=True
     )
 
-    top_opportunities = [
-        item
-        for item in opportunities
-        if item.get(
-            "confidence_score",
-            0
-        ) >= 10
-    ][:10]
+    recommendations.sort(
+        key=ranking_key,
+        reverse=True
+    )
+
+    discarded_low_confidence.sort(
+        key=ranking_key,
+        reverse=True
+    )
+
+    # =====================================================
+    # TOP 10
+    #
+    # SOMENTE SCORE >= 10
+    # =====================================================
+
+    top_opportunities = (
+        recommendations[:10]
+    )
 
     return {
         "evaluated_total":
-            len(opportunities)
-            + len(blocked),
+            (
+                len(evaluated)
+                + len(blocked)
+            ),
 
-        "eligible_total":
-            len(opportunities),
+        "scored_total":
+            len(evaluated),
+
+        "recommendation_eligible_total":
+            len(recommendations),
+
+        "discarded_low_confidence_total":
+            len(
+                discarded_low_confidence
+            ),
 
         "blocked_total":
             len(blocked),
@@ -2333,14 +2460,37 @@ def build_opportunity_ranking(
         "ranked_total":
             len(top_opportunities),
 
+        "minimum_recommendation_score":
+            MIN_RECOMMENDATION_SCORE,
+
         "top_opportunities":
             top_opportunities,
 
         "all_eligible_opportunities":
-            opportunities,
+            recommendations,
+
+        "evaluated":
+            evaluated,
+
+        "discarded_low_confidence":
+            discarded_low_confidence,
 
         "blocked":
-            blocked
+            blocked,
+
+        "integrity": {
+            "low_confidence_is_recommendation":
+                False,
+
+            "score_is_probability":
+                False,
+
+            "minimum_score_enforced":
+                True,
+
+            "minimum_score":
+                MIN_RECOMMENDATION_SCORE
+        }
     }
 
 
@@ -2400,6 +2550,10 @@ def analyze_prematch_2627(
         )
     )
 
+    # =====================================================
+    # QUALIDADE GERAL DAS AMOSTRAS
+    # =====================================================
+
     sample_quality_result = {
         "home_general":
             sample_quality(
@@ -2426,6 +2580,10 @@ def analyze_prematch_2627(
             )
     }
 
+    # =====================================================
+    # QUALIDADE POR ESTATÍSTICA
+    # =====================================================
+
     metric_quality_result = {
         "home_general":
             build_metric_quality(
@@ -2451,6 +2609,10 @@ def analyze_prematch_2627(
                 limit
             )
     }
+
+    # =====================================================
+    # EVIDÊNCIA
+    # =====================================================
 
     market_evidence = (
         build_market_evidence(
@@ -2479,6 +2641,10 @@ def analyze_prematch_2627(
             "eligible"
         ) is not True
     ]
+
+    # =====================================================
+    # PRODUZIDO × CEDIDO
+    # =====================================================
 
     produced_x_conceded = {
         "general": {
@@ -2509,6 +2675,10 @@ def analyze_prematch_2627(
                 )
         }
     }
+
+    # =====================================================
+    # QUALIDADE DOS CRUZAMENTOS
+    # =====================================================
 
     cross_quality = {
         "general": {
@@ -2544,6 +2714,10 @@ def analyze_prematch_2627(
         }
     }
 
+    # =====================================================
+    # CONFIDENCE SCORE + RANKING
+    # =====================================================
+
     opportunity_ranking = (
         build_opportunity_ranking(
             home_team_id=
@@ -2571,6 +2745,10 @@ def analyze_prematch_2627(
                 limit
         )
     )
+
+    # =====================================================
+    # RESPOSTA
+    # =====================================================
 
     return {
         "season":
@@ -2687,12 +2865,24 @@ def analyze_prematch_2627(
         "opportunity_ranking":
             opportunity_ranking,
 
+        # =================================================
+        # PORTÃO FINAL DE RECOMENDAÇÃO
+        # =================================================
+
         "recommendation_gate": {
             "eligible_stats":
                 eligible_stats,
 
             "blocked_stats":
                 blocked_stats,
+
+            "minimum_confidence_score":
+                MIN_RECOMMENDATION_SCORE,
+
+            "recommendation_eligible_total":
+                opportunity_ranking[
+                    "recommendation_eligible_total"
+                ],
 
             "has_eligible_market":
                 len(
@@ -2701,6 +2891,10 @@ def analyze_prematch_2627(
                     ]
                 ) > 0
         },
+
+        # =================================================
+        # INTEGRIDADE
+        # =================================================
 
         "integrity": {
             "missing_values_invented":
@@ -2717,6 +2911,12 @@ def analyze_prematch_2627(
 
             "confidence_score_is_probability":
                 False,
+
+            "low_confidence_markets_recommended":
+                False,
+
+            "minimum_recommendation_score":
+                MIN_RECOMMENDATION_SCORE,
 
             "note":
                 INTEGRITY_NOTE_2627
@@ -2908,6 +3108,9 @@ def collector_2627_status():
             "maximum_score":
                 20,
 
+            "minimum_recommendation_score":
+                MIN_RECOMMENDATION_SCORE,
+
             "labels": {
                 "17-20":
                     "FORTE",
@@ -2922,8 +3125,28 @@ def collector_2627_status():
                     "FRACA"
             },
 
+            "weak_markets_are_recommendations":
+                False,
+
             "score_is_probability":
                 False
+        },
+
+        "ranking_engine": {
+            "enabled":
+                True,
+
+            "top_limit":
+                10,
+
+            "minimum_score":
+                MIN_RECOMMENDATION_SCORE,
+
+            "separates_low_confidence":
+                True,
+
+            "separates_insufficient_data":
+                True
         },
 
         "connection_test":
@@ -2945,10 +3168,22 @@ def collector_2627_status():
             "minimum_coverage":
                 MIN_COVERAGE,
 
+            "hit_rates_from_real_matches_only":
+                True,
+
+            "cross_average_is_probability":
+                False,
+
+            "confidence_score_is_probability":
+                False,
+
+            "small_home_away_sample_adds_score":
+                False,
+
             "integrity_note":
                 INTEGRITY_NOTE_2627
         },
 
         "next_step":
-            "Validar ranking em partida real."
+            "Validar Confidence Score e ranking em partida real."
     }
