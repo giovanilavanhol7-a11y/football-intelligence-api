@@ -16,13 +16,17 @@ SEASON = "2026/27"
 MIN_VALID_SAMPLE = 4
 MIN_COVERAGE = 0.80
 
-INTEGRITY_NOTE_2627 = (
-    "Dados 2026/27 somente entram na Football Intelligence API "
-    "quando confirmados pela fonte. Valores ausentes permanecem null. "
-    "Frequências X/5/X/10 não são criadas a partir de médias."
-)
+# Por enquanto, o motor de análise trabalha SOMENTE
+# com estatísticas confirmadas no nosso feed atual.
+ACTIVE_STATS = [
+    "goals",
+    "corners",
+    "yellow_cards",
+    "red_cards"
+]
 
-
+# Mantemos os demais campos no formato da API,
+# mas eles NÃO participam do motor enquanto não houver fonte.
 STAT_FIELDS = [
     "goals",
     "xg",
@@ -34,9 +38,52 @@ STAT_FIELDS = [
     "red_cards"
 ]
 
+INTEGRITY_NOTE_2627 = (
+    "Confidence Score mede força da evidência e não probabilidade calibrada. "
+    "X/20 é referência ampla. Frequências X/5/X/10 não confirmadas não foram "
+    "inventadas. Linhas de AMBAS baseadas apenas em médias recebem penalização "
+    "até fecharmos Produziu × Cedeu jogo a jogo."
+)
+
 
 # =========================================================
-# MAPEAMENTO CONFIRMADO
+# LINHAS DE MERCADO ATIVAS
+# =========================================================
+
+MARKET_LINES = {
+    "goals": [
+        0.5,
+        1.5,
+        2.5
+    ],
+
+    "corners": [
+        2.5,
+        3.5,
+        4.5,
+        5.5,
+        6.5,
+        7.5,
+        8.5,
+        9.5
+    ],
+
+    "yellow_cards": [
+        0.5,
+        1.5,
+        2.5,
+        3.5,
+        4.5
+    ],
+
+    "red_cards": [
+        0.5
+    ]
+}
+
+
+# =========================================================
+# MAPEAMENTO SPORTMONKS CONFIRMADO
 # =========================================================
 
 CONFIRMED_TYPE_IDS = {
@@ -57,6 +104,8 @@ STAT_CODE_MAP = {
     "redcards": "red_cards",
     "red-cards": "red_cards",
 
+    # Permanecem preparados para o futuro,
+    # mas não entram no motor ativo.
     "shots-total": "shots",
     "total-shots": "shots",
     "shots": "shots",
@@ -144,6 +193,16 @@ def parse_date(value):
     )
 
 
+def average(values):
+    if not values:
+        return None
+
+    return round(
+        sum(values) / len(values),
+        2
+    )
+
+
 # =========================================================
 # CLIENTE SPORTMONKS
 # =========================================================
@@ -175,7 +234,7 @@ def sportmonks_request(endpoint, params=None):
 
     if response.status_code == 403:
         raise RuntimeError(
-            "Sportmonks bloqueou o recurso para este plano (HTTP 403)."
+            "Sportmonks bloqueou este recurso para o plano atual (HTTP 403)."
         )
 
     response.raise_for_status()
@@ -184,7 +243,7 @@ def sportmonks_request(endpoint, params=None):
 
 
 # =========================================================
-# TESTE DE CONEXÃO
+# CONEXÃO
 # =========================================================
 
 def test_sportmonks_connection():
@@ -208,12 +267,15 @@ def test_sportmonks_connection():
         return {
             "connected": True,
             "authenticated": True,
-            "response_valid":
-                isinstance(data, list),
-            "fixtures_received":
+            "response_valid": isinstance(
+                data,
+                list
+            ),
+            "fixtures_received": (
                 len(data)
                 if isinstance(data, list)
                 else 0
+            )
         }
 
     except Exception as error:
@@ -226,7 +288,7 @@ def test_sportmonks_connection():
 
 
 # =========================================================
-# FIXTURES POR DATA
+# FIXTURES
 # =========================================================
 
 def get_sportmonks_fixtures_by_date(date):
@@ -247,10 +309,6 @@ def get_sportmonks_fixtures_by_date(date):
     return data
 
 
-# =========================================================
-# FIXTURE INDIVIDUAL
-# =========================================================
-
 def get_sportmonks_fixture(fixture_id):
     payload = sportmonks_request(
         f"fixtures/{fixture_id}",
@@ -267,20 +325,11 @@ def get_sportmonks_fixture(fixture_id):
     return payload.get("data")
 
 
-# =========================================================
-# HISTÓRICO BRUTO DO TIME
-# =========================================================
-
 def get_team_fixtures_between(
     team_id,
     start_date,
     end_date
 ):
-    """
-    Endpoint oficial Sportmonks:
-    fixtures/between/{start}/{end}/{team_id}
-    """
-
     parse_date(start_date)
     parse_date(end_date)
 
@@ -323,7 +372,10 @@ def extract_participants(fixture):
         participants = []
 
     for participant in participants:
-        if not isinstance(participant, dict):
+        if not isinstance(
+            participant,
+            dict
+        ):
             continue
 
         meta = participant.get(
@@ -334,13 +386,21 @@ def extract_participants(fixture):
         if not isinstance(meta, dict):
             meta = {}
 
-        location = meta.get("location")
+        location = meta.get(
+            "location"
+        )
 
         item = {
-            "id": participant.get("id"),
-            "name": participant.get("name"),
+            "id":
+                participant.get("id"),
+
+            "name":
+                participant.get("name"),
+
             "short_code":
-                participant.get("short_code")
+                participant.get(
+                    "short_code"
+                )
         }
 
         if location == "home":
@@ -395,22 +455,20 @@ def normalize_sportmonks_fixture(fixture):
         "season_id":
             fixture.get("season_id"),
 
-        "date":
-            (
-                starting_at[:10]
-                if starting_at
-                else None
-            ),
+        "date": (
+            starting_at[:10]
+            if starting_at
+            else None
+        ),
 
         "kick_off":
             starting_at,
 
-        "status":
-            (
-                state.get("developer_name")
-                or state.get("state")
-                or state.get("short_name")
-            ),
+        "status": (
+            state.get("developer_name")
+            or state.get("state")
+            or state.get("short_name")
+        ),
 
         "name":
             fixture.get("name"),
@@ -457,7 +515,7 @@ def fixtures_2627_by_date(date):
 
 
 # =========================================================
-# IDENTIFICAÇÃO DE ESTATÍSTICAS
+# IDENTIFICAÇÃO DAS ESTATÍSTICAS
 # =========================================================
 
 def normalize_stat_code(value):
@@ -477,7 +535,9 @@ def identify_stat_field(stat):
     if not isinstance(stat, dict):
         return None
 
-    type_id = stat.get("type_id")
+    type_id = stat.get(
+        "type_id"
+    )
 
     if type_id in CONFIRMED_TYPE_IDS:
         return CONFIRMED_TYPE_IDS[
@@ -489,7 +549,10 @@ def identify_stat_field(stat):
         {}
     )
 
-    if not isinstance(stat_type, dict):
+    if not isinstance(
+        stat_type,
+        dict
+    ):
         return None
 
     code = normalize_stat_code(
@@ -497,7 +560,9 @@ def identify_stat_field(stat):
     )
 
     if code in STAT_CODE_MAP:
-        return STAT_CODE_MAP[code]
+        return STAT_CODE_MAP[
+            code
+        ]
 
     developer_name = normalize_stat_code(
         stat_type.get(
@@ -514,7 +579,7 @@ def identify_stat_field(stat):
 
 
 # =========================================================
-# PARSER DAS ESTATÍSTICAS
+# PARSER
 # =========================================================
 
 def parse_fixture_statistics(fixture):
@@ -526,7 +591,10 @@ def parse_fixture_statistics(fixture):
         []
     )
 
-    if not isinstance(statistics, list):
+    if not isinstance(
+        statistics,
+        list
+    ):
         statistics = []
 
     recognized = []
@@ -545,7 +613,10 @@ def parse_fixture_statistics(fixture):
             {}
         )
 
-        if not isinstance(stat_type, dict):
+        if not isinstance(
+            stat_type,
+            dict
+        ):
             stat_type = {}
 
         type_id = stat.get(
@@ -578,21 +649,30 @@ def parse_fixture_statistics(fixture):
 
         if not field:
             unrecognized.append({
-                "type_id": type_id,
-                "code": code,
+                "type_id":
+                    type_id,
+                "code":
+                    code,
                 "developer_name":
                     developer_name,
-                "location": location,
-                "value": value
+                "location":
+                    location,
+                "value":
+                    value
             })
             continue
 
         recognized.append({
-            "field": field,
-            "type_id": type_id,
-            "code": code,
-            "location": location,
-            "value": value
+            "field":
+                field,
+            "type_id":
+                type_id,
+            "code":
+                code,
+            "location":
+                location,
+            "value":
+                value
         })
 
         if location == "home":
@@ -602,15 +682,22 @@ def parse_fixture_statistics(fixture):
             away_stats[field] = value
 
     return {
-        "home": home_stats,
-        "away": away_stats,
-        "recognized": recognized,
-        "unrecognized": unrecognized
+        "home":
+            home_stats,
+
+        "away":
+            away_stats,
+
+        "recognized":
+            recognized,
+
+        "unrecognized":
+            unrecognized
     }
 
 
 # =========================================================
-# PARTIDA COMPLETA NORMALIZADA
+# PARTIDA NORMALIZADA
 # =========================================================
 
 def normalize_fixture_with_stats(fixture):
@@ -638,50 +725,46 @@ def normalize_fixture_with_stats(fixture):
 
         "teams": {
             "home": {
-                "team":
-                    (
-                        home_team.get("name")
-                        if isinstance(
-                            home_team,
-                            dict
-                        )
-                        else None
-                    ),
+                "team": (
+                    home_team.get("name")
+                    if isinstance(
+                        home_team,
+                        dict
+                    )
+                    else None
+                ),
 
-                "team_id":
-                    (
-                        home_team.get("id")
-                        if isinstance(
-                            home_team,
-                            dict
-                        )
-                        else None
-                    ),
+                "team_id": (
+                    home_team.get("id")
+                    if isinstance(
+                        home_team,
+                        dict
+                    )
+                    else None
+                ),
 
                 "stats":
                     parsed["home"]
             },
 
             "away": {
-                "team":
-                    (
-                        away_team.get("name")
-                        if isinstance(
-                            away_team,
-                            dict
-                        )
-                        else None
-                    ),
+                "team": (
+                    away_team.get("name")
+                    if isinstance(
+                        away_team,
+                        dict
+                    )
+                    else None
+                ),
 
-                "team_id":
-                    (
-                        away_team.get("id")
-                        if isinstance(
-                            away_team,
-                            dict
-                        )
-                        else None
-                    ),
+                "team_id": (
+                    away_team.get("id")
+                    if isinstance(
+                        away_team,
+                        dict
+                    )
+                    else None
+                ),
 
                 "stats":
                     parsed["away"]
@@ -698,7 +781,9 @@ def normalize_fixture_with_stats(fixture):
     }
 
 
-def analyze_fixture_2627(fixture_id):
+def analyze_fixture_2627(
+    fixture_id
+):
     fixture = get_sportmonks_fixture(
         fixture_id
     )
@@ -727,11 +812,47 @@ def stats_coverage(stats):
         )
     )
 
-    total = len(STAT_FIELDS)
+    total = len(
+        STAT_FIELDS
+    )
 
     return {
-        "available": available,
-        "total": total,
+        "available":
+            available,
+
+        "total":
+            total,
+
+        "coverage": round(
+            available / total * 100,
+            1
+        )
+    }
+
+
+def active_stats_coverage(stats):
+    if not isinstance(stats, dict):
+        stats = {}
+
+    available = sum(
+        1
+        for field in ACTIVE_STATS
+        if is_number(
+            stats.get(field)
+        )
+    )
+
+    total = len(
+        ACTIVE_STATS
+    )
+
+    return {
+        "available":
+            available,
+
+        "total":
+            total,
+
         "coverage": round(
             available / total * 100,
             1
@@ -757,25 +878,42 @@ def match_coverage(match):
     )
 
     return {
-        "home": stats_coverage(
-            home.get("stats", {})
-            if isinstance(home, dict)
-            else {}
-        ),
+        "home":
+            stats_coverage(
+                home.get(
+                    "stats",
+                    {}
+                )
+                if isinstance(
+                    home,
+                    dict
+                )
+                else {}
+            ),
 
-        "away": stats_coverage(
-            away.get("stats", {})
-            if isinstance(away, dict)
-            else {}
-        )
+        "away":
+            stats_coverage(
+                away.get(
+                    "stats",
+                    {}
+                )
+                if isinstance(
+                    away,
+                    dict
+                )
+                else {}
+            )
     }
 
 
 # =========================================================
-# PRODUZIDO × CEDIDO
+# VISÃO DO TIME — PRODUZIDO × CEDIDO
 # =========================================================
 
-def team_view(match, team_id):
+def team_view(
+    match,
+    team_id
+):
     if not isinstance(match, dict):
         return None
 
@@ -854,7 +992,7 @@ def team_view(match, team_id):
 
 
 # =========================================================
-# VALORES / MÉDIAS / HIT RATE
+# VALORES
 # =========================================================
 
 def valid_values(
@@ -870,7 +1008,10 @@ def valid_values(
             {}
         )
 
-        if not isinstance(stats, dict):
+        if not isinstance(
+            stats,
+            dict
+        ):
             continue
 
         value = stats.get(
@@ -878,20 +1019,16 @@ def valid_values(
         )
 
         if is_number(value):
-            values.append(value)
+            values.append(
+                value
+            )
 
     return values
 
 
-def average(values):
-    if not values:
-        return None
-
-    return round(
-        sum(values) / len(values),
-        2
-    )
-
+# =========================================================
+# MÉDIAS
+# =========================================================
 
 def history_averages(history):
     result = {
@@ -899,7 +1036,7 @@ def history_averages(history):
         "conceded": {}
     }
 
-    for field in STAT_FIELDS:
+    for field in ACTIVE_STATS:
         produced = valid_values(
             history,
             "produced",
@@ -915,6 +1052,7 @@ def history_averages(history):
         result["produced"][field] = {
             "average":
                 average(produced),
+
             "sample":
                 len(produced)
         }
@@ -922,12 +1060,17 @@ def history_averages(history):
         result["conceded"][field] = {
             "average":
                 average(conceded),
+
             "sample":
                 len(conceded)
         }
 
     return result
 
+
+# =========================================================
+# HIT RATE REAL
+# =========================================================
 
 def calculate_hit_rate(
     history,
@@ -943,10 +1086,17 @@ def calculate_hit_rate(
 
     if not values:
         return {
-            "hits": None,
-            "sample": 0,
-            "rate": None,
-            "line": line
+            "line":
+                line,
+
+            "hits":
+                None,
+
+            "sample":
+                0,
+
+            "rate":
+                None
         }
 
     hits = sum(
@@ -956,14 +1106,58 @@ def calculate_hit_rate(
     )
 
     return {
-        "hits": hits,
-        "sample": len(values),
+        "line":
+            line,
+
+        "hits":
+            hits,
+
+        "sample":
+            len(values),
+
         "rate": round(
             hits / len(values) * 100,
             1
-        ),
-        "line": line
+        )
     }
+
+
+def build_frequencies(history):
+    result = {}
+
+    for field in ACTIVE_STATS:
+        result[field] = {
+            "produced": [],
+            "conceded": []
+        }
+
+        for line in MARKET_LINES.get(
+            field,
+            []
+        ):
+            result[field][
+                "produced"
+            ].append(
+                calculate_hit_rate(
+                    history,
+                    "produced",
+                    field,
+                    line
+                )
+            )
+
+            result[field][
+                "conceded"
+            ].append(
+                calculate_hit_rate(
+                    history,
+                    "conceded",
+                    field,
+                    line
+                )
+            )
+
+    return result
 
 
 # =========================================================
@@ -976,8 +1170,12 @@ def sample_quality(
 ):
     if requested <= 0:
         return {
-            "valid": False,
-            "coverage": None,
+            "valid":
+                False,
+
+            "coverage":
+                None,
+
             "status":
                 "insufficient_data"
         }
@@ -993,13 +1191,20 @@ def sample_quality(
     )
 
     return {
-        "valid": valid,
-        "matches": actual,
-        "requested": requested,
+        "valid":
+            valid,
+
+        "matches":
+            actual,
+
+        "requested":
+            requested,
+
         "coverage": round(
             coverage_ratio * 100,
             1
         ),
+
         "status": (
             "valid"
             if valid
@@ -1009,10 +1214,10 @@ def sample_quality(
 
 
 # =========================================================
-# HISTÓRICO REAL 2026/27
+# BUSCA HISTÓRICA 2026/27
 # =========================================================
 
-def analyze_team_history_2627(
+def collect_team_history_2627(
     team_id,
     season_id,
     limit=5,
@@ -1041,41 +1246,44 @@ def analyze_team_history_2627(
             before_date
         )
 
-    # Busca uma janela ampla para conseguir
-    # formar últimos 5/10 e Casa/Fora.
     start_dt = (
-        before_dt - timedelta(days=365)
+        before_dt
+        - timedelta(days=365)
     )
 
-    start_date = (
-        start_dt.strftime("%Y-%m-%d")
-    )
-
-    # IMPORTANTE:
-    # usamos o dia anterior para impedir que a
-    # própria partida analisada entre na amostra.
     end_dt = (
-        before_dt - timedelta(days=1)
+        before_dt
+        - timedelta(days=1)
     )
 
-    end_date = (
-        end_dt.strftime("%Y-%m-%d")
+    start_date = start_dt.strftime(
+        "%Y-%m-%d"
     )
 
-    raw_fixtures = get_team_fixtures_between(
-        team_id=team_id,
-        start_date=start_date,
-        end_date=end_date
+    end_date = end_dt.strftime(
+        "%Y-%m-%d"
+    )
+
+    raw_fixtures = (
+        get_team_fixtures_between(
+            team_id,
+            start_date,
+            end_date
+        )
     )
 
     candidates = []
 
     for raw in raw_fixtures:
-        if not isinstance(raw, dict):
+        if not isinstance(
+            raw,
+            dict
+        ):
             continue
 
-        # Mesma temporada somente.
-        if raw.get("season_id") != season_id:
+        if raw.get(
+            "season_id"
+        ) != season_id:
             continue
 
         state = raw.get(
@@ -1083,46 +1291,58 @@ def analyze_team_history_2627(
             {}
         )
 
-        if not isinstance(state, dict):
+        if not isinstance(
+            state,
+            dict
+        ):
             state = {}
 
         state_code = (
-            state.get("developer_name")
-            or state.get("short_name")
-            or state.get("state")
+            state.get(
+                "developer_name"
+            )
+            or state.get(
+                "short_name"
+            )
+            or state.get(
+                "state"
+            )
         )
 
-        # Somente jogos encerrados.
         if state_code != "FT":
             continue
 
-        starting_at = raw.get(
+        if not raw.get(
             "starting_at"
-        )
-
-        if not starting_at:
+        ):
             continue
 
-        candidates.append(raw)
+        candidates.append(
+            raw
+        )
 
     candidates.sort(
         key=lambda item:
-            item.get("starting_at") or "",
+            item.get(
+                "starting_at"
+            ) or "",
         reverse=True
     )
 
     history = []
 
-    # Para Casa/Fora podemos precisar olhar
-    # mais partidas até conseguir 5 ou 10 válidas.
     for candidate in candidates:
-        fixture_id = candidate.get("id")
+        fixture_id = candidate.get(
+            "id"
+        )
 
         if not fixture_id:
             continue
 
-        complete = get_sportmonks_fixture(
-            fixture_id
+        complete = (
+            get_sportmonks_fixture(
+                fixture_id
+            )
         )
 
         if not complete:
@@ -1147,27 +1367,67 @@ def analyze_team_history_2627(
 
         if (
             venue != "all"
-            and view.get("venue") != venue
+            and
+            view.get("venue")
+            != venue
         ):
             continue
 
-        history.append(view)
+        history.append(
+            view
+        )
 
         if len(history) >= limit:
             break
 
+    return history
+
+
+# =========================================================
+# ANÁLISE DO HISTÓRICO
+# =========================================================
+
+def analyze_team_history_2627(
+    team_id,
+    season_id,
+    limit=5,
+    venue="all",
+    before_date=None
+):
+    history = (
+        collect_team_history_2627(
+            team_id=team_id,
+            season_id=season_id,
+            limit=limit,
+            venue=venue,
+            before_date=before_date
+        )
+    )
+
     return {
-        "season": SEASON,
-        "season_id": season_id,
-        "team_id": team_id,
-        "limit": limit,
-        "venue": venue,
-        "before_date": (
-            before_dt.strftime(
-                "%Y-%m-%d"
-            )
-        ),
-        "source": "Sportmonks",
+        "season":
+            SEASON,
+
+        "season_id":
+            season_id,
+
+        "team_id":
+            team_id,
+
+        "limit":
+            limit,
+
+        "venue":
+            venue,
+
+        "before_date":
+            before_date,
+
+        "source":
+            "Sportmonks",
+
+        "active_stats":
+            ACTIVE_STATS,
 
         "matches_analyzed":
             len(history),
@@ -1183,22 +1443,385 @@ def analyze_team_history_2627(
                 history
             ),
 
+        "frequencies":
+            build_frequencies(
+                history
+            ),
+
         "matches":
             history,
 
         "integrity": {
             "future_matches_used":
                 False,
+
             "missing_values_invented":
                 False,
+
             "hit_rates_from_real_matches_only":
-                True
+                True,
+
+            "confidence_score_is_probability":
+                False,
+
+            "note":
+                INTEGRITY_NOTE_2627
         }
     }
 
 
 # =========================================================
-# RESUMO LOCAL
+# CRUZAMENTO PRODUZIDO × CEDIDO
+# =========================================================
+
+def cross_metric(
+    produced_history,
+    conceded_history,
+    field
+):
+    produced_values = valid_values(
+        produced_history,
+        "produced",
+        field
+    )
+
+    conceded_values = valid_values(
+        conceded_history,
+        "conceded",
+        field
+    )
+
+    produced_average = average(
+        produced_values
+    )
+
+    conceded_average = average(
+        conceded_values
+    )
+
+    projection = None
+
+    if (
+        produced_average is not None
+        and
+        conceded_average is not None
+    ):
+        projection = round(
+            (
+                produced_average
+                + conceded_average
+            ) / 2,
+            2
+        )
+
+    return {
+        "produced_average":
+            produced_average,
+
+        "produced_sample":
+            len(produced_values),
+
+        "opponent_conceded_average":
+            conceded_average,
+
+        "opponent_conceded_sample":
+            len(conceded_values),
+
+        "cross_average":
+            projection,
+
+        "is_hit_rate":
+            False
+    }
+
+
+def build_cross(
+    team_history,
+    opponent_history
+):
+    result = {}
+
+    for field in ACTIVE_STATS:
+        result[field] = cross_metric(
+            team_history,
+            opponent_history,
+            field
+        )
+
+    return result
+
+
+# =========================================================
+# PRÉ-JOGO 2026/27
+# =========================================================
+
+def analyze_prematch_2627(
+    home_team_id,
+    away_team_id,
+    season_id,
+    limit=5,
+    before_date=None
+):
+    if limit not in [5, 10]:
+        raise ValueError(
+            "limit deve ser 5 ou 10"
+        )
+
+    # ---------------------------------------------
+    # ÚLTIMOS JOGOS GERAIS
+    # ---------------------------------------------
+
+    home_general = (
+        collect_team_history_2627(
+            team_id=home_team_id,
+            season_id=season_id,
+            limit=limit,
+            venue="all",
+            before_date=before_date
+        )
+    )
+
+    away_general = (
+        collect_team_history_2627(
+            team_id=away_team_id,
+            season_id=season_id,
+            limit=limit,
+            venue="all",
+            before_date=before_date
+        )
+    )
+
+    # ---------------------------------------------
+    # CASA × FORA
+    # ---------------------------------------------
+
+    home_home = (
+        collect_team_history_2627(
+            team_id=home_team_id,
+            season_id=season_id,
+            limit=limit,
+            venue="home",
+            before_date=before_date
+        )
+    )
+
+    away_away = (
+        collect_team_history_2627(
+            team_id=away_team_id,
+            season_id=season_id,
+            limit=limit,
+            venue="away",
+            before_date=before_date
+        )
+    )
+
+    # ---------------------------------------------
+    # QUALIDADE
+    # ---------------------------------------------
+
+    quality = {
+        "home_general":
+            sample_quality(
+                len(home_general),
+                limit
+            ),
+
+        "away_general":
+            sample_quality(
+                len(away_general),
+                limit
+            ),
+
+        "home_at_home":
+            sample_quality(
+                len(home_home),
+                limit
+            ),
+
+        "away_at_away":
+            sample_quality(
+                len(away_away),
+                limit
+            )
+    }
+
+    all_samples_valid = all(
+        item.get("valid") is True
+        for item in quality.values()
+    )
+
+    # ---------------------------------------------
+    # CRUZAMENTOS
+    # ---------------------------------------------
+
+    general_cross = {
+        "home":
+            build_cross(
+                home_general,
+                away_general
+            ),
+
+        "away":
+            build_cross(
+                away_general,
+                home_general
+            )
+    }
+
+    venue_cross = {
+        "home":
+            build_cross(
+                home_home,
+                away_away
+            ),
+
+        "away":
+            build_cross(
+                away_away,
+                home_home
+            )
+    }
+
+    return {
+        "season":
+            SEASON,
+
+        "season_id":
+            season_id,
+
+        "before_date":
+            before_date,
+
+        "limit":
+            limit,
+
+        "source":
+            "Sportmonks",
+
+        "active_stats":
+            ACTIVE_STATS,
+
+        "teams": {
+            "home_team_id":
+                home_team_id,
+
+            "away_team_id":
+                away_team_id
+        },
+
+        "sample_quality":
+            quality,
+
+        "all_samples_valid":
+            all_samples_valid,
+
+        "home": {
+            "general": {
+                "matches":
+                    home_general,
+
+                "averages":
+                    history_averages(
+                        home_general
+                    ),
+
+                "frequencies":
+                    build_frequencies(
+                        home_general
+                    )
+            },
+
+            "home_only": {
+                "matches":
+                    home_home,
+
+                "averages":
+                    history_averages(
+                        home_home
+                    ),
+
+                "frequencies":
+                    build_frequencies(
+                        home_home
+                    )
+            }
+        },
+
+        "away": {
+            "general": {
+                "matches":
+                    away_general,
+
+                "averages":
+                    history_averages(
+                        away_general
+                    ),
+
+                "frequencies":
+                    build_frequencies(
+                        away_general
+                    )
+            },
+
+            "away_only": {
+                "matches":
+                    away_away,
+
+                "averages":
+                    history_averages(
+                        away_away
+                    ),
+
+                "frequencies":
+                    build_frequencies(
+                        away_away
+                    )
+            }
+        },
+
+        "produced_x_conceded": {
+            "general":
+                general_cross,
+
+            "home_away":
+                venue_cross
+        },
+
+        "recommendation_gate": {
+            "eligible":
+                all_samples_valid,
+
+            "reason": (
+                "samples_valid"
+                if all_samples_valid
+                else "insufficient_sample"
+            )
+        },
+
+        "integrity": {
+            "missing_values_invented":
+                False,
+
+            "future_matches_used":
+                False,
+
+            "hit_rates_from_real_matches_only":
+                True,
+
+            "cross_average_is_hit_rate":
+                False,
+
+            "confidence_score_is_probability":
+                False,
+
+            "note":
+                INTEGRITY_NOTE_2627
+        }
+    }
+
+
+# =========================================================
+# COMPATIBILIDADE LOCAL
 # =========================================================
 
 def get_team_history(
@@ -1227,11 +1850,19 @@ def get_team_history(
 
         team_id = None
 
-        if home.get("team") == team_name:
-            team_id = home.get("team_id")
+        if home.get(
+            "team"
+        ) == team_name:
+            team_id = home.get(
+                "team_id"
+            )
 
-        elif away.get("team") == team_name:
-            team_id = away.get("team_id")
+        elif away.get(
+            "team"
+        ) == team_name:
+            team_id = away.get(
+                "team_id"
+            )
 
         if team_id is None:
             continue
@@ -1246,11 +1877,15 @@ def get_team_history(
 
         if (
             venue != "all"
-            and view.get("venue") != venue
+            and
+            view.get("venue")
+            != venue
         ):
             continue
 
-        history.append(view)
+        history.append(
+            view
+        )
 
     history.sort(
         key=lambda item:
@@ -1280,6 +1915,11 @@ def build_team_summary(
                 history
             ),
 
+        "frequencies":
+            build_frequencies(
+                history
+            ),
+
         "matches":
             history
     }
@@ -1303,9 +1943,14 @@ def collector_2627_status():
             else "source_not_connected"
         ),
 
-        "season": SEASON,
-        "mode": "2026_27",
-        "data_source": "Sportmonks",
+        "season":
+            SEASON,
+
+        "mode":
+            "2026_27",
+
+        "data_source":
+            "Sportmonks",
 
         "data_source_connected":
             connection.get(
@@ -1322,8 +1967,15 @@ def collector_2627_status():
         "storage_connected":
             False,
 
-        "supported_stats":
-            STAT_FIELDS,
+        "active_analysis_stats":
+            ACTIVE_STATS,
+
+        "reserved_future_stats": [
+            "xg",
+            "shots",
+            "shots_on_target",
+            "fouls_committed"
+        ],
 
         "confirmed_sportmonks_type_ids": {
             "34": "corners",
@@ -1338,20 +1990,24 @@ def collector_2627_status():
         "integrity": {
             "missing_values_invented":
                 False,
+
             "zero_is_missing":
                 False,
+
             "null_is_missing":
                 True,
+
             "minimum_valid_games":
                 MIN_VALID_SAMPLE,
+
             "minimum_coverage":
                 MIN_COVERAGE,
+
             "integrity_note":
                 INTEGRITY_NOTE_2627
         },
 
         "next_step": (
-            "Expor histórico 2026/27 por time "
-            "no app.py."
+            "Expor o pré-jogo 2026/27 no app.py."
         )
     }
