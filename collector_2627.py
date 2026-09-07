@@ -1,18 +1,21 @@
+import os
+import requests
 from datetime import datetime
 
+SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3/football"
+SPORTMONKS_API_TOKEN = os.getenv("SPORTMONKS_API_TOKEN")
+
+TIMEOUT = 25
 SEASON = "2026/27"
 
+MIN_VALID_SAMPLE = 4
+MIN_COVERAGE = 0.80
+
 INTEGRITY_NOTE_2627 = (
-    "Dados 2026/27 somente podem entrar na Football Intelligence API "
-    "quando forem confirmados por uma fonte de dados válida. "
-    "Valores ausentes permanecem null/None. "
-    "Nenhuma frequência X/5 ou X/10 é criada a partir de médias."
+    "Dados 2026/27 somente entram na Football Intelligence API "
+    "quando confirmados pela fonte. Valores ausentes permanecem null. "
+    "Frequências X/5/X/10 não são criadas a partir de médias."
 )
-
-
-# =========================================================
-# PADRÃO OFICIAL DE ESTATÍSTICAS 2026/27
-# =========================================================
 
 STAT_FIELDS = [
     "goals",
@@ -26,27 +29,8 @@ STAT_FIELDS = [
 ]
 
 
-def empty_stats():
-    """
-    Para dados atuais usamos None em vez de zero.
-
-    Zero significa que a estatística foi confirmada como zero.
-    None significa que o dado não foi fornecido/confirmado.
-    """
-    return {
-        "goals": None,
-        "xg": None,
-        "shots": None,
-        "shots_on_target": None,
-        "corners": None,
-        "fouls_committed": None,
-        "yellow_cards": None,
-        "red_cards": None
-    }
-
-
 # =========================================================
-# VALIDAÇÃO
+# UTILIDADES
 # =========================================================
 
 def is_number(value):
@@ -66,7 +50,7 @@ def normalize_number(value):
     try:
         text = str(value).strip()
 
-        if text == "":
+        if not text:
             return None
 
         number = float(
@@ -80,6 +64,19 @@ def normalize_number(value):
 
     except (TypeError, ValueError):
         return None
+
+
+def empty_stats():
+    return {
+        "goals": None,
+        "xg": None,
+        "shots": None,
+        "shots_on_target": None,
+        "corners": None,
+        "fouls_committed": None,
+        "yellow_cards": None,
+        "red_cards": None
+    }
 
 
 def normalize_stats(stats):
@@ -97,112 +94,314 @@ def normalize_stats(stats):
 
 
 # =========================================================
-# PARTIDA PADRONIZADA
+# SPORTMONKS
 # =========================================================
 
-def normalize_match(match):
-    """
-    Transforma uma partida 2026/27 no padrão interno
-    da Football Intelligence API.
-    """
+def sportmonks_request(endpoint, params=None):
+    if not SPORTMONKS_API_TOKEN:
+        raise RuntimeError(
+            "SPORTMONKS_API_TOKEN não configurado no servidor."
+        )
 
-    if not isinstance(match, dict):
-        return None
+    query = dict(params or {})
 
-    match_id = match.get("match_id")
+    query["api_token"] = SPORTMONKS_API_TOKEN
 
-    date = match.get("date")
+    url = (
+        f"{SPORTMONKS_BASE_URL}/"
+        f"{endpoint.lstrip('/')}"
+    )
 
-    competition = match.get("competition")
+    response = requests.get(
+        url,
+        params=query,
+        timeout=TIMEOUT
+    )
 
-    home_team = match.get("home_team")
-    away_team = match.get("away_team")
+    # Nunca devolvemos o token ao cliente.
+    if response.status_code == 401:
+        raise RuntimeError(
+            "Sportmonks recusou o token (HTTP 401)."
+        )
 
-    if (
-        match_id is None
-        or not date
-        or not home_team
-        or not away_team
-    ):
-        return None
+    if response.status_code == 403:
+        raise RuntimeError(
+            "Sportmonks bloqueou o recurso para este plano (HTTP 403)."
+        )
 
+    response.raise_for_status()
+
+    return response.json()
+
+
+# =========================================================
+# TESTE REAL DA CONEXÃO
+# =========================================================
+
+def test_sportmonks_connection():
+    if not SPORTMONKS_API_TOKEN:
+        return {
+            "connected": False,
+            "authenticated": False,
+            "reason": "token_not_configured"
+        }
+
+    try:
+        payload = sportmonks_request(
+            "fixtures",
+            {
+                "per_page": 1
+            }
+        )
+
+        data = payload.get("data", [])
+
+        if not isinstance(data, list):
+            return {
+                "connected": True,
+                "authenticated": True,
+                "response_valid": False,
+                "fixtures_received": 0
+            }
+
+        return {
+            "connected": True,
+            "authenticated": True,
+            "response_valid": True,
+            "fixtures_received": len(data)
+        }
+
+    except requests.exceptions.HTTPError as error:
+        status_code = (
+            error.response.status_code
+            if error.response is not None
+            else None
+        )
+
+        return {
+            "connected": False,
+            "authenticated": False,
+            "http_status": status_code,
+            "reason": "sportmonks_http_error"
+        }
+
+    except requests.exceptions.RequestException as error:
+        return {
+            "connected": False,
+            "authenticated": False,
+            "reason": "network_error",
+            "error": str(error)
+        }
+
+    except Exception as error:
+        return {
+            "connected": False,
+            "authenticated": False,
+            "reason": "connection_error",
+            "error": str(error)
+        }
+
+
+# =========================================================
+# FIXTURES SPORTMONKS
+# =========================================================
+
+def get_sportmonks_fixtures_by_date(date):
     try:
         datetime.strptime(
             date,
             "%Y-%m-%d"
         )
     except (TypeError, ValueError):
-        return None
+        raise ValueError(
+            "Data deve estar no formato YYYY-MM-DD."
+        )
 
-    home_stats = normalize_stats(
-        match.get("home_stats", {})
+    payload = sportmonks_request(
+        f"fixtures/date/{date}",
+        {
+            "include": "participants;state"
+        }
     )
 
-    away_stats = normalize_stats(
-        match.get("away_stats", {})
+    data = payload.get("data", [])
+
+    if not isinstance(data, list):
+        return []
+
+    return data
+
+
+def get_sportmonks_fixture(fixture_id):
+    payload = sportmonks_request(
+        f"fixtures/{fixture_id}",
+        {
+            "include": (
+                "participants;"
+                "state;"
+                "scores;"
+                "statistics.type"
+            )
+        }
+    )
+
+    return payload.get("data")
+
+
+# =========================================================
+# PARTICIPANTES
+# =========================================================
+
+def extract_participants(fixture):
+    home = None
+    away = None
+
+    participants = fixture.get(
+        "participants",
+        []
+    )
+
+    for participant in participants:
+        meta = participant.get(
+            "meta",
+            {}
+        )
+
+        location = meta.get(
+            "location"
+        )
+
+        item = {
+            "id": participant.get("id"),
+            "name": participant.get("name"),
+            "short_code": participant.get(
+                "short_code"
+            )
+        }
+
+        if location == "home":
+            home = item
+
+        elif location == "away":
+            away = item
+
+    return home, away
+
+
+# =========================================================
+# NORMALIZAÇÃO DE FIXTURE
+# =========================================================
+
+def normalize_sportmonks_fixture(fixture):
+    if not isinstance(fixture, dict):
+        return None
+
+    home, away = extract_participants(
+        fixture
+    )
+
+    state = fixture.get(
+        "state",
+        {}
     )
 
     return {
-        "match_id": str(match_id),
-
-        "season": SEASON,
-
-        "competition":
-            competition,
-
-        "date":
-            date,
-
-        "kick_off":
-            match.get("kick_off"),
-
-        "status":
-            match.get("status"),
-
-        "home_team":
-            home_team,
-
-        "away_team":
-            away_team,
-
-        "home_score":
-            normalize_number(
-                match.get("home_score")
-            ),
-
-        "away_score":
-            normalize_number(
-                match.get("away_score")
-            ),
-
-        "home_stats":
-            home_stats,
-
-        "away_stats":
-            away_stats,
-
-        "source":
-            match.get("source"),
+        "match_id": fixture.get("id"),
 
         "source_match_id":
-            match.get("source_match_id"),
+            fixture.get("id"),
 
-        "updated_at":
-            match.get("updated_at")
+        "source":
+            "Sportmonks",
+
+        "season":
+            SEASON,
+
+        "league_id":
+            fixture.get("league_id"),
+
+        "season_id":
+            fixture.get("season_id"),
+
+        "date":
+            (
+                fixture.get(
+                    "starting_at",
+                    ""
+                )[:10]
+                if fixture.get(
+                    "starting_at"
+                )
+                else None
+            ),
+
+        "kick_off":
+            fixture.get(
+                "starting_at"
+            ),
+
+        "status":
+            state.get("state")
+            if isinstance(state, dict)
+            else None,
+
+        "name":
+            fixture.get("name"),
+
+        "home_team":
+            home,
+
+        "away_team":
+            away,
+
+        "result_info":
+            fixture.get(
+                "result_info"
+            )
     }
 
 
 # =========================================================
-# CONTROLE DE COMPLETUDE
+# FIXTURES POR DATA NORMALIZADAS
+# =========================================================
+
+def fixtures_2627_by_date(date):
+    raw_fixtures = (
+        get_sportmonks_fixtures_by_date(
+            date
+        )
+    )
+
+    fixtures = []
+
+    for raw in raw_fixtures:
+        normalized = (
+            normalize_sportmonks_fixture(
+                raw
+            )
+        )
+
+        if normalized:
+            fixtures.append(
+                normalized
+            )
+
+    return {
+        "season": SEASON,
+        "date": date,
+        "source": "Sportmonks",
+        "total": len(fixtures),
+        "fixtures": fixtures
+    }
+
+
+# =========================================================
+# COBERTURA
 # =========================================================
 
 def stats_coverage(stats):
     if not isinstance(stats, dict):
-        return {
-            "available": 0,
-            "total": len(STAT_FIELDS),
-            "coverage": 0.0
-        }
+        stats = {}
 
     available = sum(
         1
@@ -215,335 +414,16 @@ def stats_coverage(stats):
     total = len(STAT_FIELDS)
 
     return {
-        "available":
-            available,
-
-        "total":
-            total,
-
-        "coverage":
-            round(
-                available / total * 100,
-                1
-            )
+        "available": available,
+        "total": total,
+        "coverage": round(
+            available / total * 100,
+            1
+        )
     }
 
 
-def match_coverage(match):
-    if not isinstance(match, dict):
-        return {
-            "home": None,
-            "away": None,
-            "complete": False
-        }
-
-    home = stats_coverage(
-        match.get(
-            "home_stats",
-            {}
-        )
-    )
-
-    away = stats_coverage(
-        match.get(
-            "away_stats",
-            {}
-        )
-    )
-
-    complete = (
-        home["coverage"] == 100.0
-        and
-        away["coverage"] == 100.0
-    )
-
-    return {
-        "home":
-            home,
-
-        "away":
-            away,
-
-        "complete":
-            complete
-    }
-
-
-# =========================================================
-# PRODUZIDO × CEDIDO
-# =========================================================
-
-def team_view(match, team_name):
-    """
-    Converte uma partida para:
-    produzido pelo time
-    +
-    cedido ao adversário.
-    """
-
-    if not isinstance(match, dict):
-        return None
-
-    home = match.get("home_team")
-    away = match.get("away_team")
-
-    if team_name == home:
-        produced = match.get(
-            "home_stats",
-            {}
-        )
-
-        conceded = match.get(
-            "away_stats",
-            {}
-        )
-
-        venue = "home"
-        opponent = away
-
-    elif team_name == away:
-        produced = match.get(
-            "away_stats",
-            {}
-        )
-
-        conceded = match.get(
-            "home_stats",
-            {}
-        )
-
-        venue = "away"
-        opponent = home
-
-    else:
-        return None
-
-    return {
-        "match_id":
-            match.get("match_id"),
-
-        "date":
-            match.get("date"),
-
-        "competition":
-            match.get("competition"),
-
-        "team":
-            team_name,
-
-        "opponent":
-            opponent,
-
-        "venue":
-            venue,
-
-        "produced":
-            normalize_stats(
-                produced
-            ),
-
-        "conceded":
-            normalize_stats(
-                conceded
-            )
-    }
-
-
-# =========================================================
-# HISTÓRICO
-# =========================================================
-
-def get_team_history(
-    matches,
-    team_name,
-    limit=5,
-    venue="all"
-):
-    if limit not in [5, 10]:
-        raise ValueError(
-            "limit deve ser 5 ou 10"
-        )
-
-    if venue not in [
-        "all",
-        "home",
-        "away"
-    ]:
-        raise ValueError(
-            "venue deve ser all, home ou away"
-        )
-
-    team_games = []
-
-    for raw_match in matches:
-        match = normalize_match(
-            raw_match
-        )
-
-        if match is None:
-            continue
-
-        view = team_view(
-            match,
-            team_name
-        )
-
-        if view is None:
-            continue
-
-        if (
-            venue != "all"
-            and view["venue"] != venue
-        ):
-            continue
-
-        team_games.append(
-            view
-        )
-
-    team_games.sort(
-        key=lambda game:
-            game.get("date") or "",
-        reverse=True
-    )
-
-    return team_games[:limit]
-
-
-# =========================================================
-# MÉDIAS SEM INVENTAR AUSÊNCIAS
-# =========================================================
-
-def valid_values(games, section, stat):
-    values = []
-
-    for game in games:
-        value = (
-            game
-            .get(section, {})
-            .get(stat)
-        )
-
-        if is_number(value):
-            values.append(value)
-
-    return values
-
-
-def average(values):
-    if not values:
-        return None
-
-    return round(
-        sum(values) / len(values),
-        2
-    )
-
-
-def history_averages(games):
-    produced = {}
-    conceded = {}
-
-    for stat in STAT_FIELDS:
-        produced_values = valid_values(
-            games,
-            "produced",
-            stat
-        )
-
-        conceded_values = valid_values(
-            games,
-            "conceded",
-            stat
-        )
-
-        produced[stat] = {
-            "average":
-                average(
-                    produced_values
-                ),
-
-            "sample":
-                len(
-                    produced_values
-                )
-        }
-
-        conceded[stat] = {
-            "average":
-                average(
-                    conceded_values
-                ),
-
-            "sample":
-                len(
-                    conceded_values
-                )
-        }
-
-    return {
-        "produced":
-            produced,
-
-        "conceded":
-            conceded
-    }
-
-
-# =========================================================
-# FREQUÊNCIA JOGO A JOGO
-# =========================================================
-
-def calculate_hit_rate(
-    games,
-    section,
-    stat,
-    line
-):
-    values = valid_values(
-        games,
-        section,
-        stat
-    )
-
-    sample = len(values)
-
-    if sample == 0:
-        return {
-            "hits": 0,
-            "sample": 0,
-            "rate": None
-        }
-
-    hits = sum(
-        1
-        for value in values
-        if value > line
-    )
-
-    return {
-        "hits":
-            hits,
-
-        "sample":
-            sample,
-
-        "rate":
-            round(
-                hits / sample * 100,
-                1
-            )
-    }
-
-
-# =========================================================
-# QUALIDADE DA AMOSTRA
-# =========================================================
-
-def sample_quality(
-    actual,
-    requested
-):
+def sample_quality(actual, requested):
     if (
         not isinstance(actual, int)
         or not isinstance(requested, int)
@@ -551,7 +431,8 @@ def sample_quality(
     ):
         return {
             "valid": False,
-            "coverage": None
+            "coverage": None,
+            "status": "insufficient_data"
         }
 
     coverage_ratio = (
@@ -559,126 +440,72 @@ def sample_quality(
     )
 
     valid = (
-        actual >= 4
+        actual >= MIN_VALID_SAMPLE
         and
-        coverage_ratio >= 0.80
+        coverage_ratio >= MIN_COVERAGE
     )
 
     return {
-        "valid":
-            valid,
-
-        "matches":
-            actual,
-
-        "requested":
-            requested,
-
-        "coverage":
-            round(
-                coverage_ratio * 100,
-                1
-            ),
-
-        "status":
-            (
-                "valid"
-                if valid
-                else
-                "insufficient_data"
-            )
+        "valid": valid,
+        "matches": actual,
+        "requested": requested,
+        "coverage": round(
+            coverage_ratio * 100,
+            1
+        ),
+        "status": (
+            "valid"
+            if valid
+            else "insufficient_data"
+        )
     }
 
 
 # =========================================================
-# RESUMO DO TIME
-# =========================================================
-
-def build_team_summary(
-    matches,
-    team_name,
-    limit=5,
-    venue="all"
-):
-    games = get_team_history(
-        matches=matches,
-        team_name=team_name,
-        limit=limit,
-        venue=venue
-    )
-
-    return {
-        "season":
-            SEASON,
-
-        "team":
-            team_name,
-
-        "venue":
-            venue,
-
-        "requested_matches":
-            limit,
-
-        "matches_analyzed":
-            len(games),
-
-        "sample_quality":
-            sample_quality(
-                len(games),
-                limit
-            ),
-
-        "averages":
-            history_averages(
-                games
-            ),
-
-        "games":
-            games,
-
-        "integrity": {
-            "missing_values_invented":
-                False,
-
-            "zero_means_confirmed_zero":
-                True,
-
-            "null_means_unavailable":
-                True,
-
-            "hit_rates_from_match_data_only":
-                True,
-
-            "integrity_note":
-                INTEGRITY_NOTE_2627
-        }
-    }
-
-
-# =========================================================
-# STATUS DO COLETOR
+# STATUS 2026/27
 # =========================================================
 
 def collector_2627_status():
+    connection = (
+        test_sportmonks_connection()
+    )
+
     return {
-        "status":
-            "ready",
+        "status": (
+            "ready"
+            if connection.get(
+                "connected"
+            )
+            else "source_not_connected"
+        ),
 
-        "season":
-            SEASON,
+        "season": SEASON,
 
-        "mode":
-            "2026_27",
+        "mode": "2026_27",
+
+        "data_source":
+            "Sportmonks",
 
         "data_source_connected":
-            False,
+            connection.get(
+                "connected",
+                False
+            ),
+
+        "authenticated":
+            connection.get(
+                "authenticated",
+                False
+            ),
 
         "storage_connected":
             False,
 
         "supported_stats":
             STAT_FIELDS,
+
+        "connection_test":
+            connection,
 
         "integrity": {
             "missing_values_invented":
@@ -691,15 +518,17 @@ def collector_2627_status():
                 True,
 
             "minimum_valid_games":
-                4,
+                MIN_VALID_SAMPLE,
 
             "minimum_coverage":
-                0.80
+                MIN_COVERAGE,
+
+            "integrity_note":
+                INTEGRITY_NOTE_2627
         },
 
-        "next_step":
-            (
-                "Conectar uma fonte real de dados "
-                "2026/27 e armazenamento."
-            )
+        "next_step": (
+            "Validar fixtures reais 2026/27 "
+            "e depois normalizar estatisticas."
+        )
     }
